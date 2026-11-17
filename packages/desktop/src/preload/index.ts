@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('antumi', {
   getCoreEndpoint: (): Promise<unknown> => ipcRenderer.invoke('antumi:core-endpoint'),
   // Why a remote core is not up, when remote mode is on; null otherwise.
   getRemoteProblem: (): Promise<unknown> => ipcRenderer.invoke('antumi:remote-problem'),
+  // Asks where to save a file the user chose to download, and writes it there.
+  saveDownload: (payload: { name: string; base64: string }): Promise<unknown> => ipcRenderer.invoke('antumi:save-download', payload),
   appVersion: (): Promise<unknown> => ipcRenderer.invoke('antumi:app-version'),
   visualizationCreate: (document: string): Promise<unknown> => ipcRenderer.invoke('antumi:visualization-create', document),
   visualizationRemove: (url: string): Promise<unknown> => ipcRenderer.invoke('antumi:visualization-remove', url),

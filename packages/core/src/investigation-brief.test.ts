@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { investigationBrief } from './investigation-brief'
 
 const source = { provider: 'demo', instance: 'default', name: 'Demo', key: 'D-1', url: 'https://example.test/D-1' }
-const snapshot = { markdown: 'It breaks', fetchedAt: 0, images: [] }
+const snapshot = { markdown: 'It breaks', fetchedAt: 0, images: [], attachments: [] }
 
 describe('investigationBrief', () => {
   it('stops at a finding when opened by hand', () => {

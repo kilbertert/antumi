@@ -11,7 +11,9 @@ set -euo pipefail
 
 export ANTUMI_HOME=${ANTUMI_HOME:-/home/claude/.antumi-remote}
 export ANTUMI_PORT=${ANTUMI_PORT:-19450}
-ANTUMI=/home/claude/Projects/antumi
+# The checkout this script lives in, so a worktree runs its own code rather than the
+# canonical one it was copied into.
+ANTUMI=$(cd "$(dirname "$0")/.." && pwd)
 logs=$ANTUMI_HOME/logs
 mkdir -p "$logs"
 

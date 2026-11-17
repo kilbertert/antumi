@@ -11,7 +11,7 @@ import { TaskStore } from './task-store'
 const comment = (id: string, createdAt = 1000): SourceComment => ({ id, createdAt, updatedAt: null, author: 'Ann', url: 'https://example.test/D-1', markdown: `comment ${id}`, truncated: false })
 const target: SourceUpdateTarget = { kind: 'conversation', id: 'one' }
 const source = { provider: 'demo', instance: 'default', key: 'D-1', name: 'Demo', url: 'https://example.test/D-1' }
-const baseline: SourceSnapshot = { markdown: 'original', images: [], fetchedAt: 1000, commentState: { comments: [comment('old')], checkpoint: { createdAt: 1000, ids: ['old'] } } }
+const baseline: SourceSnapshot = { markdown: 'original', images: [], attachments: [], fetchedAt: 1000, commentState: { comments: [comment('old')], checkpoint: { createdAt: 1000, ids: ['old'] } } }
 
 describe('watched issue updates', () => {
   let root: string

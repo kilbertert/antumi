@@ -33,14 +33,36 @@ export const TaskSource = z.object({
 export type TaskSource = z.infer<typeof TaskSource>
 
 // The issue as the tracker had it: untrusted text, kept apart from the details the user writes.
+// Enough to show the file and let the user ask for it; `id` is the source's own handle.
+export const SourceAttachmentRef = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(300),
+  size: z.number().int().nonnegative().nullable()
+})
+
 export const SourceSnapshot = z.object({
   markdown: z.string().max(MAX_SNAPSHOT_LENGTH),
   fetchedAt: z.number(),
   imagesFetchedAt: z.number().optional(),
   commentState: SourceCommentState.optional(),
   // The issue's own images, stored by core; untrusted like the text.
-  images: z.array(TaskImage).default([])
+  images: z.array(TaskImage).default([]),
+  // Files the issue carries, named but not fetched: the bytes arrive through sources.attachment
+  // when someone asks for them. Older cores leave this out.
+  attachments: z.array(SourceAttachmentRef).default([])
 })
+
+// What sources.attachment answers with. Base64 rather than a path: the client can be on another
+// machine, as it is whenever core runs remotely.
+export const SourceAttachmentData = z.object({
+  name: z.string().min(1).max(300),
+  // The source's own handle for this file, echoed back so a retry is recognisable.
+  id: z.string().min(1).max(200),
+  size: z.number().int().nonnegative(),
+  base64: z.string()
+})
+
+
 export type SourceSnapshot = z.infer<typeof SourceSnapshot>
 
 const Choice = z.object({ value: z.string(), label: z.string(), translations: TextTranslations.optional() })

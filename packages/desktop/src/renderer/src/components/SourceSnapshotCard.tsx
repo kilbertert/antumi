@@ -4,6 +4,7 @@ import type { Task } from '@antumi/protocol'
 import { perform } from '../core-store'
 import { dayAndTime } from '../labels'
 import { ChevronDownIcon, RefreshIcon } from './icons'
+import { SourceAttachments } from './SourceAttachments'
 import { ImageStrip } from './ImageStrip'
 import { ImageViewer } from './ImageViewer'
 import { MarkdownEditor } from './MarkdownEditor'
@@ -53,6 +54,7 @@ export function SourceSnapshotCard({ task }: { task: Task }) {
           readOnly
         />
       )}
+      {open && snapshot.attachments.length > 0 && <SourceAttachments source={source} attachments={snapshot.attachments} />}
       {open && snapshot.images.length > 0 && (
         <div className="snapshot-images">
           <span className="muted">{tr('SourceSnapshotCard.imagesFromProvidedAsReferenceLikeTheOriginal', { value1: source.name, value2: snapshot.images.length })}</span>

@@ -85,7 +85,7 @@ describe('TaskService', () => {
   it('marks background source snapshots as data-only without changing the task status', () => {
     const task = service.create({ title: 'Imported issue' })
     const before = daemon.spawns.length
-    const updated = service.setSnapshot(task.id, { markdown: 'new comment', images: [], fetchedAt: 1000 }, true)
+    const updated = service.setSnapshot(task.id, { markdown: 'new comment', images: [], attachments: [], fetchedAt: 1000 }, true)
     expect(updated.status).toBe('pending')
     expect(daemon.spawns.length).toBe(before)
     expect(events.at(-1)).toMatchObject({ type: 'changed', sourceOnly: true })
@@ -600,7 +600,7 @@ describe('TaskService', () => {
     const mine = await attachments.put(pngBytes(40, 30))
     const theirs = await attachments.put(gifBytes(8, 8))
     const source = { provider: 'jira', instance: 'default', name: 'Jira', key: 'PROJ-7', url: 'https://acme.atlassian.net/browse/PROJ-7' }
-    const snapshot = { markdown: '见截图', fetchedAt: 0, images: [{ id: theirs.id, name: 'shot.gif', width: 8, height: 8 }] }
+    const snapshot = { markdown: '见截图', fetchedAt: 0, images: [{ id: theirs.id, name: 'shot.gif', width: 8, height: 8 }], attachments: [] }
     const task = service.importTask({ title: 'Fix', agent: 'claude', source, snapshot })
     await service.addImages(task.id, [{ id: mine.id, name: '登录页' }])
     service.update({ id: task.id, repos: [repo] })
@@ -622,7 +622,7 @@ describe('TaskService', () => {
   it('puts the issue key of an imported task into its branch, where Jira looks for it', async () => {
     const repo = initRepo('app')
     const source = { provider: 'jira', instance: 'default', name: 'Jira', key: 'PROJ-7', url: 'https://acme.atlassian.net/browse/PROJ-7' }
-    const task = service.importTask({ title: '菜单分类排序', agent: 'claude', source, snapshot: { markdown: 'x', fetchedAt: 0, images: [] } })
+    const task = service.importTask({ title: '菜单分类排序', agent: 'claude', source, snapshot: { markdown: 'x', fetchedAt: 0, images: [], attachments: [] } })
     service.update({ id: task.id, repos: [repo] })
 
     const running = await service.start(task.id)

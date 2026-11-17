@@ -117,9 +117,16 @@ export function runSourcePlugin(options: Options): { close(): void } {
         const image = await source.image(settings, credential, key, id, signal)
         return { name: image.name, base64: Buffer.from(image.bytes).toString('base64') }
       }
+      case 'attachment': {
+        const { settings, credential, key, id } = pluginSchemas.attachment.params.parse(params)
+        if (!source.attachment) throw new SourceError('request-failed', '来源不支持下载附件')
+        const file = await source.attachment(settings, credential, key, id, signal)
+        return { name: file.name, base64: Buffer.from(file.bytes).toString('base64') }
+      }
       case 'fetch': {
         const { settings, credential, key, images } = pluginSchemas.fetch.params.parse(params)
         const detail = await source.fetch(settings, credential, key, signal, { images: images ?? true })
+        // attachments pass through untouched: they are names and sizes, not bytes.
         return { ...detail, images: detail.images?.map((image) => ({ name: image.name, base64: Buffer.from(image.bytes).toString('base64') })) }
       }
     }

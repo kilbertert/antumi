@@ -121,7 +121,14 @@ export class PluginProcess {
       child.stdout.on('data', (chunk: Buffer) => {
         if (outcome) return
         bytes += chunk.length
-        if (bytes > (method === 'fetch' && handshaken ? 72 * 1024 * 1024 : method === 'image' && handshaken ? 16 * 1024 * 1024 : MAX_OUTPUT)) { fail('插件输出超出大小限制'); return }
+                // An attachment is a file the user asked to download: it is base64'd, so its budget is the
+        // file ceiling plus the encoding's third, and it is the only method expected to reach it.
+        const ceiling = !handshaken ? MAX_OUTPUT
+          : method === 'fetch' ? 72 * 1024 * 1024
+          : method === 'attachment' ? 96 * 1024 * 1024
+          : method === 'image' ? 16 * 1024 * 1024
+          : MAX_OUTPUT
+        if (bytes > ceiling) { fail('插件输出超出大小限制'); return }
         let at = 0
         while (at < chunk.length && !outcome) {
           const end = chunk.indexOf(10, at)
@@ -187,12 +194,18 @@ export class PluginProcess {
       providers.push({
         ...source,
         ...(source.commentSync === 1 ? {
-          comments: (settings, credential, key, signal, options) => this.call('comments', { source: source.id, settings, credential, key, ...options }, signal),
-          image: async (settings, credential, key, id, signal) => {
-            const image = await this.call('image', { source: source.id, settings, credential, key, id }, signal)
-            return { name: image.name, bytes: Buffer.from(image.base64, 'base64') }
-          }
+          comments: (settings, credential, key, signal, options) => this.call('comments', { source: source.id, settings, credential, key, ...options }, signal)
         } satisfies Partial<SourceProvider> : {}),
+        // Outside the commentSync guard: comment images and attachments are separate features, and
+        // a source may carry files without supporting comments.
+        image: async (settings, credential, key, id, signal) => {
+          const image = await this.call('image', { source: source.id, settings, credential, key, id }, signal)
+          return { name: image.name, bytes: Buffer.from(image.base64, 'base64') }
+        },
+        attachment: async (settings, credential, key, id, signal) => {
+          const file = await this.call('attachment', { source: source.id, settings, credential, key, id }, signal)
+          return { name: file.name, bytes: Buffer.from(file.base64, 'base64') }
+        },
         envCredential: () => credential,
         normalizeSettings: (settings) => this.call('normalizeSettings', { source: source.id, settings }, timed()),
         normalizeKey: (key) => this.call('normalizeKey', { source: source.id, key }, timed()),

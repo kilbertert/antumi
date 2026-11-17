@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { SourceCommentOptions, SourceCommentPage, SourceCommentState } from './source-comments'
 import { MAX_ATTACHMENT_BYTES, MAX_TASK_IMAGES } from './attachments'
-import { LoginNotice, LoginPrompt, SettingField, SourceId, SourceIssue, SourceProblem } from './source'
+import { LoginNotice, LoginPrompt, SettingField, SourceAttachmentRef, SourceId, SourceIssue, SourceProblem } from './source'
 
 export const PLUGIN_PROTOCOL_VERSION = 1
 export const PluginId = z.string().max(120).regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/)
@@ -49,6 +49,15 @@ const SourceImage = z.object({
 })
 const SourceImages = z.array(SourceImage).max(MAX_TASK_IMAGES)
   .refine((images) => images.reduce((size, image) => size + imageSize(image.base64), 0) <= MAX_SOURCE_IMAGE_BYTES)
+// A file the user chose to download, not a picture shown inline: MAX_ATTACHMENT_BYTES is an image's
+// budget and rejected the 38MB attachment this was built against, so a file has its own ceiling
+// with the base64 expansion accounted for.
+export const MAX_SOURCE_FILE_BYTES = 96 * 1024 * 1024
+const SourceFile = z.object({
+  name: z.string().max(4096),
+  base64: z.string().max(Math.ceil(MAX_SOURCE_FILE_BYTES / 3) * 4)
+    .refine((value) => value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value) && imageSize(value) <= MAX_SOURCE_FILE_BYTES)
+})
 
 export const PluginCredential = z.object({ kind: z.string().max(32), payload: z.record(z.string(), z.string()) })
 export type PluginCredential = z.infer<typeof PluginCredential>
@@ -65,9 +74,18 @@ export const pluginMethods = {
   comments: { params: SourceCommentOptions.extend({ source: SourceId, settings: Settings, credential: PluginCredential, key: z.string() }), result: SourceCommentPage },
   // One image a comment names (SourceComment.images), asked for only when the comment goes to an agent.
   image: { params: z.object({ source: SourceId, settings: Settings, credential: PluginCredential, key: z.string(), id: z.string().min(1).max(500) }), result: SourceImage },
+  // One attachment's bytes, asked for only when the user downloads it: these run to tens of
+  // megabytes and are usually never opened, so they stay out of the fetch result.
+  attachment: { params: z.object({ source: SourceId, settings: Settings, credential: PluginCredential, key: z.string(), id: z.string().min(1).max(500) }), result: SourceFile },
   fetch: {
     params: z.object({ source: SourceId, settings: Settings, credential: PluginCredential, key: z.string(), images: z.boolean().optional() }),
-    result: SourceIssue.extend({ markdown: z.string().max(50_000), images: SourceImages.optional(), imagesDeferred: z.number().int().nonnegative().max(1000).optional(), commentState: SourceCommentState.optional() })
+    result: SourceIssue.extend({
+      markdown: z.string().max(50_000), images: SourceImages.optional(),
+      imagesDeferred: z.number().int().nonnegative().max(1000).optional(), commentState: SourceCommentState.optional(),
+      // Named, not fetched: without this field the attachment list is dropped here, before core
+      // ever sees it.
+      attachments: z.array(SourceAttachmentRef).max(100).optional()
+    })
   }
 } as const
 export type PluginMethod = keyof typeof pluginMethods
@@ -77,7 +95,7 @@ export type PluginParams<M extends PluginMethod> = z.output<(typeof pluginMethod
 export type PluginResult<M extends PluginMethod> = z.output<(typeof pluginMethods)[M]['result']>
 export const PluginCall = z.object({
   type: z.literal('call'), id: z.string(),
-  method: z.enum(['handshake', 'normalizeSettings', 'normalizeKey', 'envCredential', 'login', 'list', 'fetch', 'comments', 'image']),
+  method: z.enum(['handshake', 'normalizeSettings', 'normalizeKey', 'envCredential', 'login', 'list', 'fetch', 'comments', 'image', 'attachment']),
   params: z.unknown()
 })
 export const PluginAnswer = z.object({ type: z.literal('answer'), id: z.string(), value: z.string() })

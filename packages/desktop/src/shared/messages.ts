@@ -8664,6 +8664,12 @@ export const MESSAGES = {
     "zh": "保存设置",
     "en": "Save settings"
   },
+  "SourceAttachments.filesFrom": {"zh": "来自 {value1} 的 {value2} 个附件", "en": "{value2} attachment(s) from {value1}"},
+  "SourceAttachments.download": {"zh": "下载", "en": "Download"},
+  "SourceAttachments.downloadUnsupported": {"zh": "当前版本不支持下载附件", "en": "This build cannot download attachments"},
+  "SourceAttachments.downloading": {"zh": "正在下载…", "en": "Downloading…"},
+  "SourceAttachments.saved": {"zh": "已保存到 {value1}", "en": "Saved to {value1}"},
+  "SourceAttachments.notConnected": {"zh": "尚未连接到 core", "en": "Not connected to core"},
   "SourceSnapshotCard.original": {
     "zh": "{value1} 原文",
     "en": "{value1} original"

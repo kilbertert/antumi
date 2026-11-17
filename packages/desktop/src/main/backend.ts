@@ -311,9 +311,11 @@ export function ensureBackend(): Promise<void> {
       return
     }
     if (remote.kind === 'on') {
+      console.error(`[antumi] remote mode: ssh ${remote.config.sshHost}, port ${remote.config.corePort}, home ${remote.config.remoteHome}`)
       remoteLink ??= createRemoteLink(remote.config)
       try {
-        await remoteLink.ensure()
+        const endpoint = await remoteLink.ensure()
+        console.error(`[antumi] remote core up: 127.0.0.1:${endpoint.port} (remote ${endpoint.port})`)
         remoteProblem = null
       } catch (error) {
         // No local fallback on purpose: the user asked for the remote runtime, and starting one

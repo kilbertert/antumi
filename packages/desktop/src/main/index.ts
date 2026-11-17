@@ -1,4 +1,5 @@
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { dirname, extname, isAbsolute, join } from 'node:path'
@@ -358,6 +359,25 @@ ipcMain.on('antumi:panel-shortcut', (event, payload: unknown) => {
 
 // The version that runs, which a build may set apart from the source's package.json (a beta).
 ipcMain.handle('antumi:app-version', () => app.getVersion())
+// Saving a file the user asked to download. The renderer sends the bytes it already has (they came
+// over RPC from the source's own API) and the main process only asks where to put them: a page
+// cannot write to an arbitrary path, and it should not get to choose one silently either.
+ipcMain.handle('antumi:save-download', async (event, payload: unknown) => {
+  const parsed = z.object({ name: z.string().min(1).max(300), base64: z.string() }).safeParse(payload)
+  if (!parsed.success) return { ok: false as const, reason: 'invalid' }
+  const { name, base64 } = parsed.data
+  // The name is only a suggestion: it is sanitized before it reaches the dialog, and the dialog's
+  // answer is what is written.
+  const suggested = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 200) || 'attachment'
+  const answer = await dialog.showSaveDialog({ defaultPath: join(app.getPath('downloads'), suggested) })
+  if (answer.canceled || !answer.filePath) return { ok: false as const, reason: 'cancelled' }
+  try {
+    await writeFile(answer.filePath, Buffer.from(base64, 'base64'))
+    return { ok: true as const, path: answer.filePath }
+  } catch (error) {
+    return { ok: false as const, reason: error instanceof Error ? error.message : 'write-failed' }
+  }
+})
 ipcMain.handle('antumi:visualization-create', (event, document: unknown) => {
   if (event.senderFrame !== event.sender.mainFrame) throw new Error('Invalid visualization owner')
   return visualizationPages.create(event.sender.id, document)
@@ -670,7 +690,29 @@ app.on('second-instance', () => {
   }
 })
 
+// A packaged app has no console, so every diagnostic written with console.error — including the
+// reason a remote core would not come up — went nowhere. This writes the same lines to
+// <userData>/logs/main.log and keeps the console behaviour when there is one. A window that says
+// "waiting for core" is otherwise impossible to explain from the outside.
+function teeDiagnostics(): void {
+  if (!app.isPackaged) return
+  const dir = join(app.getPath('userData'), 'logs')
+  try { mkdirSync(dir, { recursive: true }) } catch { return }
+  const file = join(dir, 'main.log')
+  const write = (level: string, args: unknown[]) => {
+    try {
+      const line = args.map((value) => (value instanceof Error ? `${value.message}\n${value.stack ?? ''}` : typeof value === 'string' ? value : JSON.stringify(value))).join(' ')
+      appendFileSync(file, `${new Date().toISOString()} ${level} ${line}\n`)
+    } catch { /* logging must never break the app */ }
+  }
+  for (const level of ['error', 'warn', 'log'] as const) {
+    const original = console[level].bind(console)
+    console[level] = (...args: unknown[]) => { write(level.toUpperCase(), args); original(...args) }
+  }
+}
+
 void app.whenReady().then(async () => {
+  teeDiagnostics()
   if (!primary) return
   protocol.handle(PREVIEW_SCHEME, servePreview)
   protocol.handle(VISUALIZATION_SCHEME, (request) => visualizationPages.serve(request))
