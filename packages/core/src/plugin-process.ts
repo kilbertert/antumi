@@ -60,17 +60,18 @@ export class PluginProcess {
     for (const controller of this.controllers) controller.abort()
   }
 
-  call<M extends PluginMethod>(method: M, params: PluginParams<M>, signal?: AbortSignal, session?: LoginSession): Promise<PluginResult<M>> {
+  call<M extends PluginMethod>(method: M, params: PluginParams<M>, signal?: AbortSignal, session?: LoginSession, onProgress?: (read: number, total: number | null) => void): Promise<PluginResult<M>> {
     if (this.stopped) return Promise.reject(new SourceError('request-failed', '插件已停止'))
     const controller = new AbortController()
     this.controllers.add(controller)
     const abort = AbortSignal.any([controller.signal, ...(signal ? [signal] : []), AbortSignal.timeout(method === 'login' ? 15 * 60_000 : 120_000)])
-    const result = this.invoke(method, params, abort, session)
+    // A download may take minutes on a slow site; its own budget, not the standard 120s.
+    const result = this.invoke(method, params, method === 'attachment' ? AbortSignal.any([abort, AbortSignal.timeout(15 * 60_000)]) : abort, session, onProgress)
     void result.finally(() => this.controllers.delete(controller)).catch(() => {})
     return result
   }
 
-  private invoke<M extends PluginMethod>(method: M, params: PluginParams<M>, signal: AbortSignal, session?: LoginSession): Promise<PluginResult<M>> {
+  private invoke<M extends PluginMethod>(method: M, params: PluginParams<M>, signal: AbortSignal, session?: LoginSession, onProgress?: (read: number, total: number | null) => void): Promise<PluginResult<M>> {
     return new Promise((resolve, reject) => {
       if (signal.aborted) { reject(new SourceError('request-failed', '插件调用已取消')); return }
       const child = spawn(process.execPath, [this.main], {
@@ -142,6 +143,12 @@ export class PluginProcess {
           at = end + 1
           try {
             const message = PluginMessage.parse(JSON.parse(line))
+            if (message.type === 'progress') {
+              // Only a download produces these; anything else reporting progress is a plugin bug.
+              if (method !== 'attachment') throw new Error('progress outside attachment')
+              onProgress?.(message.read, message.total)
+              continue
+            }
             if (message.type === 'notify' || message.type === 'prompt') {
               if (!handshaken || method !== 'login' || !session) throw new Error('callback outside login')
               if (message.type === 'notify') { session.notify(message.notice); continue }
@@ -202,8 +209,8 @@ export class PluginProcess {
           const image = await this.call('image', { source: source.id, settings, credential, key, id }, signal)
           return { name: image.name, bytes: Buffer.from(image.base64, 'base64') }
         },
-        attachment: async (settings, credential, key, id, signal) => {
-          const file = await this.call('attachment', { source: source.id, settings, credential, key, id }, signal)
+        attachment: async (settings, credential, key, id, signal, progress) => {
+          const file = await this.call('attachment', { source: source.id, settings, credential, key, id }, signal, undefined, progress)
           return { name: file.name, bytes: Buffer.from(file.base64, 'base64') }
         },
         envCredential: () => credential,

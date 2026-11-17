@@ -310,6 +310,7 @@ await migrateLegacyJira(paths.legacyJiraConfig, sourceConfig, credentials).catch
 )
 const sources = new SourceService([], sourceConfig, credentials, new LoginFlows(), service, store, attachments, {
   inboxChanged: (inbox) => server?.broadcast('sources.inboxChanged', { inbox }),
+  attachmentProgress: (progress) => server?.broadcast('sources.attachmentProgress', progress),
   listChanged: (list) => { server?.broadcast('sources.listChanged', { sources: list }); queueMicrotask(() => { sourceUpdates?.connectionsChanged() }) }
 })
 sources.setConversations(conversations)

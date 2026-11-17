@@ -120,7 +120,10 @@ export function runSourcePlugin(options: Options): { close(): void } {
       case 'attachment': {
         const { settings, credential, key, id } = pluginSchemas.attachment.params.parse(params)
         if (!source.attachment) throw new SourceError('request-failed', '来源不支持下载附件')
-        const file = await source.attachment(settings, credential, key, id, signal)
+        // Reports travel as their own message type; the answer comes back through the normal result.
+        const file = await source.attachment(settings, credential, key, id, signal, (read, total) => {
+          send({ type: 'progress', read: Math.max(0, Math.floor(read)), total: total === null ? null : Math.max(0, Math.floor(total)) })
+        })
         return { name: file.name, base64: Buffer.from(file.bytes).toString('base64') }
       }
       case 'fetch': {

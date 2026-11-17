@@ -8670,6 +8670,7 @@ export const MESSAGES = {
   "SourceAttachments.downloading": {"zh": "正在下载…", "en": "Downloading…"},
   "SourceAttachments.saved": {"zh": "已保存到 {value1}", "en": "Saved to {value1}"},
   "SourceAttachments.notConnected": {"zh": "尚未连接到 core", "en": "Not connected to core"},
+  "SourceAttachments.progressOf": {"zh": "{value1} 下载进度", "en": "Download progress of {value1}"},
   "SourceSnapshotCard.original": {
     "zh": "{value1} 原文",
     "en": "{value1} original"

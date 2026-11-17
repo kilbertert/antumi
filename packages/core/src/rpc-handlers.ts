@@ -885,7 +885,7 @@ export function createRpcHandlers(
     'sources.refresh': ({ provider, instance }) => sources.refresh(provider, instance),
     'sources.issue': ({ provider, instance, key, images }) => sources.issue(provider, instance, key, images),
     'sources.issueComments': ({ provider, instance, key, options }) => sources.issueComments(provider, instance, key, options),
-    'sources.attachment': ({ provider, instance, key, attachmentId }) => sources.attachment(provider, instance, key, attachmentId),
+    'sources.attachment': ({ provider, instance, key, attachmentId, expectedSize }) => sources.attachment(provider, instance, key, attachmentId, expectedSize ?? null),
     'sources.import': ({ provider, instance, key, agent }) => sources.import(provider, instance, key, agent ?? null),
     'sources.investigate': ({ provider, instance, key, ...options }) => sources.investigate(provider, instance, key, options),
     'sources.retryInvestigation': ({ id }) => sources.retryInvestigation(id),

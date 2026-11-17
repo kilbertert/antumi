@@ -96,9 +96,10 @@ function demoProvider(): Demo {
         ...(key === 'D-3' ? { attachments: [{ id: 'f-1', name: 'build.rar', size: 4 }] } : {})
       }
     },
-    attachment: async (_settings, _credential, key, id) => {
+    attachment: async (_settings, _credential, key, id, _signal, progress) => {
       demo.askedFor.push(`${key}/${id}`)
       if (id === 'missing') throw new SourceError('not-found', 'no such file')
+      progress?.(2, null)
       return { name: 'build.rar', bytes: new Uint8Array([1, 2, 3, 4]) }
     }
   }
@@ -118,6 +119,7 @@ describe('SourceService', () => {
   let credentials: CredentialStore
   let inboxes: SourceInbox[]
   let lists: SourceDescriptor[][]
+  let progressEvents: Array<{ provider: string; instance: string; key: string; id: string; read: number; total: number | null }>
   let clock: number
   let env: NodeJS.ProcessEnv
   let service: SourceService
@@ -140,6 +142,7 @@ describe('SourceService', () => {
     await credentials.load()
     inboxes = []
     lists = []
+    progressEvents = []
     clock = 1_000_000
     env = {}
     service = new SourceService(
@@ -150,7 +153,8 @@ describe('SourceService', () => {
       tasks,
       store,
       attachments,
-      { inboxChanged: (inbox) => inboxes.push(inbox), listChanged: (list) => lists.push(list) },
+      { inboxChanged: (inbox) => inboxes.push(inbox),
+      attachmentProgress: (event) => progressEvents.push(event), listChanged: (list) => lists.push(list) },
       env,
       () => clock,
       50
@@ -331,7 +335,7 @@ describe('SourceService', () => {
       tasks,
       store,
       attachments,
-      { inboxChanged: () => {}, listChanged: () => {} },
+      { inboxChanged: () => {}, listChanged: () => {}, attachmentProgress: () => {} },
       env,
       () => clock
     )
@@ -378,7 +382,7 @@ describe('SourceService', () => {
       tasks,
       store,
       attachments,
-      { inboxChanged: () => {}, listChanged: () => {} },
+      { inboxChanged: () => {}, listChanged: () => {}, attachmentProgress: () => {} },
       env,
       () => clock
     )
@@ -813,5 +817,16 @@ describe('SourceService', () => {
     await config.save({ provider: 'demo', instance: 'default', enabled: true, settings: { site: 'https://demo.test' } })
     await credentials.set('demo', 'default', { kind: 'token', payload: { token: 'good' }, account: 'Ann', updatedAt: clock })
     await expect(service.attachment('demo', 'default', 'D-3', 'missing')).rejects.toMatchObject({ reason: expect.stringContaining('source') })
+  })
+
+  it('reports download progress, falling back to the size the snapshot listed', async () => {
+    await config.save({ provider: 'demo', instance: 'default', enabled: true, settings: { site: 'https://demo.test' } })
+    await credentials.set('demo', 'default', { kind: 'token', payload: { token: 'good' }, account: 'Ann', updatedAt: clock })
+    // The demo reports no total, as ZenTao does (chunked, no content-length); the snapshot's size
+    // is what makes a percentage possible.
+    const file = await service.attachment('demo', 'default', 'D-3', 'f-1', 4)
+    expect(file.size).toBe(4)
+    expect(progressEvents.length).toBeGreaterThan(0)
+    expect(progressEvents[0]).toMatchObject({ id: 'f-1', read: 2, total: 4 })
   })
 })

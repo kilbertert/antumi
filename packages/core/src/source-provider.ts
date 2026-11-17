@@ -37,7 +37,8 @@ export type SourceProvider = {
   image?(settings: SourceSettings, credential: SourceCredential, key: string, id: string, signal: AbortSignal): Promise<{ name: string; bytes: Uint8Array }>
   // One attachment's bytes, read only when asked: these run to tens of megabytes and are often
   // never opened, so they are not part of the snapshot.
-  attachment?(settings: SourceSettings, credential: SourceCredential, key: string, id: string, signal: AbortSignal): Promise<{ name: string; bytes: Uint8Array }>
+  // progress: bytes read so far and the expected total, for a download long enough to report on.
+  attachment?(settings: SourceSettings, credential: SourceCredential, key: string, id: string, signal: AbortSignal, progress?: (read: number, total: number | null) => void): Promise<{ name: string; bytes: Uint8Array }>
   readonly settings: readonly SettingField[]
   // Checks and canonicalizes settings before they are saved; throws SourceError('invalid-settings').
   normalizeSettings(values: SourceSettings): Record<string, string> | Promise<Record<string, string>>

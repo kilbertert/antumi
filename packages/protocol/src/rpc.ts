@@ -901,7 +901,8 @@ export const rpcMethods = {
   // One attachment's bytes, fetched when the user asks rather than with the snapshot: these are
   // frequently tens of megabytes and often never opened. Base64 because the client may be on
   // another machine. Needs source-attachments.
-  'sources.attachment': { params: IssueRef.extend({ attachmentId: z.string().min(1).max(200) }), result: SourceAttachmentData },
+  // expectedSize: what the snapshot said the file weighs, for the progress percentage when the source cannot report a total.
+  'sources.attachment': { params: IssueRef.extend({ attachmentId: z.string().min(1).max(200), expectedSize: z.number().int().nonnegative().nullable().optional() }), result: SourceAttachmentData },
   // Turns an issue into a pending task that carries the issue's text as a snapshot.
   'sources.import': { params: IssueRef.extend({ agent: AgentKind.nullable().optional() }), result: Task },
   // Opens a conversation to look into an issue, handed the issue's text the way a handoff is, in
@@ -1032,6 +1033,11 @@ export const rpcNotifications = {
   'sources.autoInvestigationChanged': InstanceRef.extend({ info: AutoInvestigationInfo, run: AutoInvestigationRun.optional() }),
   'sources.updatesChanged': z.object({ summaries: z.array(SourceUpdateSummary) }),
   'sources.inboxChanged': z.object({ inbox: SourceInbox }),
+  // How far an attachment download has read. Arrives a few times a second while it runs.
+  'sources.attachmentProgress': z.object({
+    provider: z.string(), instance: z.string(), key: z.string(), id: z.string(),
+    read: z.number().int().nonnegative(), total: z.number().int().nonnegative().nullable()
+  }),
   // Sent only to the connection that started the flow.
   'sources.loginPrompt': z.object({ flowId: z.string(), promptId: z.string(), prompt: LoginPrompt }),
   'sources.loginNotice': z.object({ flowId: z.string(), notice: LoginNotice }),

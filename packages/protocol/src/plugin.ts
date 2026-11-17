@@ -103,5 +103,8 @@ export const PluginMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('result'), id: z.string(), result: z.unknown() }),
   z.object({ type: z.literal('error'), id: z.string(), error: SourceProblem }),
   z.object({ type: z.literal('prompt'), id: z.string(), prompt: LoginPrompt }),
-  z.object({ type: z.literal('notify'), notice: LoginNotice })
+  z.object({ type: z.literal('notify'), notice: LoginNotice }),
+  // How far a download has read. Separate from notify: that one is login-only, and this arrives
+  // while an attachment is being fetched, often for tens of seconds.
+  z.object({ type: z.literal('progress'), read: z.number().int().nonnegative(), total: z.number().int().nonnegative().nullable() })
 ])

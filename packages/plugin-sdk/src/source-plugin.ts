@@ -3,6 +3,8 @@ import type { SourceCommentOptions, SourceCommentPage } from '../../protocol/src
 import type { PluginCredential, PluginResult } from '../../protocol/src/plugin.js'
 
 export type SourceSettings = Readonly<Record<string, string>>
+// read: bytes so far. total: the size the source expects, or null when it cannot say.
+export type SourceProgress = (read: number, total: number | null) => void
 export type SourceCredential = PluginCredential
 // An attachment a source lists but does not send: the snapshot carries its identity and size, and
 // the bytes are read only when someone asks. Unlike images, these are frequently larger than a
@@ -26,7 +28,9 @@ export type SourcePlugin = {
   image?(settings: SourceSettings, credential: SourceCredential, key: string, id: string, signal: AbortSignal): Promise<{ name: string; bytes: Uint8Array }>
   // One attachment's bytes, read on demand. key is the issue, because a file id is only meaningful
   // within the permissions of the item it hangs off.
-  attachment?(settings: SourceSettings, credential: SourceCredential, key: string, id: string, signal: AbortSignal): Promise<{ name: string; bytes: Uint8Array }>
+  // progress: how far the bytes have been read, for a file large enough to take a while. A source
+  // that cannot tell may leave it alone; core then shows an indeterminate state.
+  attachment?(settings: SourceSettings, credential: SourceCredential, key: string, id: string, signal: AbortSignal, progress?: SourceProgress): Promise<{ name: string; bytes: Uint8Array }>
   normalizeSettings(values: SourceSettings): Record<string, string> | Promise<Record<string, string>>
   normalizeKey?(key: string): string | Promise<string>
   envCredential?(env: Readonly<Record<string, string | undefined>>): SourceCredential | null

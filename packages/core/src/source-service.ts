@@ -91,6 +91,9 @@ export type InvestigateOptions = Omit<RpcParsedParams<'sources.investigate'>, 'p
 export type SourceEvents = {
   inboxChanged(inbox: SourceInbox): void
   listChanged(sources: SourceDescriptor[]): void
+  // How far an attachment has been read. Throttled by the caller: a 38MB file arrives in thousands
+  // of chunks and a notification per chunk would cost more than the download.
+  attachmentProgress(progress: { provider: string; instance: string; key: string; id: string; read: number; total: number | null }): void
 }
 
 type InstanceState = {
@@ -466,7 +469,10 @@ export class SourceService {
 
   // One attachment's bytes, on demand. Stored as well as returned: the same file is often wanted
   // twice (once to open, once to hand to an agent), and a stored copy has an id to refer to.
-  async attachment(id: string, instance: string, rawKey: string, attachmentId: string): Promise<{ name: string; id: string; size: number; base64: string }> {
+  // expectedSize: what the snapshot already said the file weighs. ZenTao answers with chunked
+  // encoding and no content-length, so the source cannot report a total; the snapshot can, which is
+  // what lets the progress bar show a percentage rather than just bytes.
+  async attachment(id: string, instance: string, rawKey: string, attachmentId: string, expectedSize: number | null = null): Promise<{ name: string; id: string; size: number; base64: string }> {
     return this.track(id, async () => {
       const check = this.guard(id, instance)
       const ready = this.requireReady(id, instance)
@@ -476,7 +482,17 @@ export class SourceService {
       const abort = this.state(id, instance).controller.signal
       let file: { name: string; bytes: Uint8Array }
       try {
-        file = await this.call((signal) => ready.provider.attachment!(ready.settings, ready.credential, key, attachmentId, AbortSignal.any([signal, abort])), ATTACHMENT_TIMEOUT_MS)
+        // Report at most a few times a second: a reader yields many small chunks, and one
+        // notification each would flood the socket the file itself is arriving on.
+        let lastAt = 0
+        const report = (read: number, total: number | null) => {
+          const now = this.now()
+          if (now - lastAt < 250) return
+          lastAt = now
+          // The source's own total when it has one, else the size the snapshot listed.
+          this.events.attachmentProgress({ provider: id, instance, key: id, id: attachmentId, read, total: total ?? expectedSize })
+        }
+        file = await this.call((signal) => ready.provider.attachment!(ready.settings, ready.credential, key, attachmentId, AbortSignal.any([signal, abort]), report), ATTACHMENT_TIMEOUT_MS)
       } catch (error) {
         if (error instanceof Rejection) throw error
         throw sourceRejection(error)
