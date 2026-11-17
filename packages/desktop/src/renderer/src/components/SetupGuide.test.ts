@@ -26,14 +26,13 @@ vi.mock('zustand', async (importOriginal) => {
     return Object.assign((selector: (state: T) => unknown) => selector(store.getState()), store)
   } }
 })
-vi.mock('./PetSprite', () => ({ usePetSkin: () => ({ render: () => createElement('span', { 'data-test-pet': true }) }) }))
 
 const env = (signedIn: boolean | null, status: 'ok' | 'unknown' = 'ok'): Environment => ({ checks: [{ tool: 'codex', status, signedIn, version: '1.0.0', path: '/bin/codex' }], checkedAt: 0, searchPath: [] })
 const render = () => renderToStaticMarkup(createElement(SetupGuide))
 
 beforeEach(() => {
   useCore.setState({ ...useCore.getInitialState(), connection: 'connected', environment: env(false), sources: [] }, true)
-  usePreferences.setState({ ...DEFAULT_PREFERENCES, petLevel: 'off', setup: SetupProgress.parse({ status: 'active' }) }, true)
+  usePreferences.setState({ ...DEFAULT_PREFERENCES, setup: SetupProgress.parse({ status: 'active' }) }, true)
   useProviderProbes.setState({ probes: {} })
   useExternalSessions.setState({ sessions: [], loading: false })
   setLocale('zh-CN')
@@ -120,12 +119,9 @@ describe('SetupGuide', () => {
     expect(render()).toContain('View all conversations')
   })
 
-  it('keeps the pet and actions available in settings, without forcing an off pet on', () => {
+  it('keeps the actions available in settings', () => {
     useCore.setState({ settingsOpen: true })
     expect(render()).toContain('打开外部智能体')
-    expect(render()).not.toContain('data-test-pet')
-    usePreferences.setState({ petLevel: 'medium' })
-    expect(render()).toContain('data-test-pet')
   })
 
   it('hides while reading the guide and restores the same progress on leaving it', () => {

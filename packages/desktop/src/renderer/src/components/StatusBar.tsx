@@ -32,17 +32,21 @@ const CONNECTION_HINT: Record<ConnectionIssue, string> = localized(() => ({
 // Only interruptions need a status-bar indicator; healthy is the default.
 function ConnectionStatus() {
   const connection = useCore((s) => s.connection)
+  const coreProblem = useCore((s) => s.coreProblem)
   if (connection === 'connected') return null
+  // Remote mode names its own failure: "waiting for core to start" would tell the user to start a
+  // local one, which is the opposite of what this build is doing.
+  const hint = coreProblem ?? CONNECTION_HINT[connection]
   return (
     <span
       className="connection"
-      data-state={connection}
+      data-state={coreProblem ? 'failed' : connection}
       role="status"
-      title={CONNECTION_HINT[connection]}
-      aria-label={CONNECTION_HINT[connection]}
+      title={hint}
+      aria-label={hint}
     >
       <span className="connection-dot" aria-hidden="true" />
-      <span>{CONNECTION_LABEL[connection]}</span>
+      <span>{coreProblem ?? CONNECTION_LABEL[connection]}</span>
     </span>
   )
 }

@@ -1,14 +1,16 @@
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { dirname, extname, isAbsolute, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, protocol, screen, session, shell, type OpenDialogOptions, type WebContents } from 'electron'
 import { z } from 'zod'
-import { resolveUiLocale, UiLocale } from '@antumi/protocol'
+import { connectRpc, coreUrl, resolveUiLocale, UiLocale } from '@antumi/protocol'
 import { applicationMenu } from './application-menu'
 import { ShortcutAction, ShortcutSettings } from '../shared/keyboard-shortcuts'
 import { antumiPaths, readCoreEndpoint } from '@antumi/protocol/node'
-import { ensureBackend, replaceOldDaemon, stopBackendForInstall } from './backend'
+import { ensureBackend, remoteCoreProblem, replaceOldDaemon, stopBackendForInstall, stopRemoteLink } from './backend'
+import { readRemoteConfig } from './remote-core'
 import { popupWindowOptions, RequestPopup } from './request-popup'
 import { defaultIslandMode, islandDisplay } from './popup-placement'
 import { PanelWindows, parseDockPayload, parseHandoff, parsePanelCommands, parsePanelKind } from './panel-windows'
@@ -60,12 +62,49 @@ const PREVIEW_POLICY = [
   "base-uri 'none'", "form-action 'none'"
 ].join('; ')
 
+// The same URL, read on the far side: core owns that filesystem, and files.read is the call the
+// chat already trusts for text. One connection is kept and reopened on failure, because core
+// restarts change the port and token in core.json.
+let previewRpc: { url: string; connection: Awaited<ReturnType<typeof connectRpc>> } | null = null
+async function remotePreviewRpc() {
+  const endpoint = await readCoreEndpoint()
+  if (!endpoint) return null
+  const url = coreUrl(endpoint)
+  if (previewRpc?.url === url) return previewRpc.connection
+  const connection = await connectRpc(url)
+  previewRpc = { url, connection }
+  return connection
+}
+
+async function serveRemotePreview(path: string): Promise<Response> {
+  try {
+    const rpc = await remotePreviewRpc()
+    if (!rpc) return new Response('not found', { status: 404 })
+    // The file's own folder is the root it is allowed from; a path outside it is refused by core.
+    const roots = [dirname(path)]
+    const read = await rpc.call('files.read', { roots, path })
+    if (read.kind !== 'text') return new Response('not found', { status: 404 })
+    const type = PREVIEW_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
+    // Only text arrives this way; an image extension would be mislabelled as text, so say so.
+    if (!type.startsWith('text/') && type !== 'application/json' && type !== 'image/svg+xml') return new Response('not found', { status: 404 })
+    const content = type.startsWith('text/html') ? previewHtml(read.text) : read.text
+    return new Response(content, { headers: { 'content-type': type, 'content-security-policy': PREVIEW_POLICY, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } })
+  } catch {
+    return new Response('not found', { status: 404 })
+  }
+}
+
 async function servePreview(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const named = decodeURIComponent(url.pathname)
   // A Windows path comes as /C:/x (see urlPath in the renderer).
   const path = process.platform === 'win32' && /^\/[a-zA-Z]:\//.test(named) ? named.slice(1) : named
   if (url.host !== 'file' || !isAbsolute(path)) return new Response('not found', { status: 404 })
+  // Remote mode: the file lives on the machine that runs the agents, so it is read through core
+  // rather than off this disk. Same scheme and same URL, so the chat renderer needs no change;
+  // only the text/binary split differs, which is why images fall into 'unavailable' here — see
+  // REMOTE-CORE.md §4.4 for the RPC that would close that gap.
+  if (readRemoteConfig().kind === 'on') return serveRemotePreview(path)
   try {
     // The path as it really is: a link may not lead the frame somewhere else under a page's name.
     const real = await realpath(path)
@@ -330,6 +369,25 @@ ipcMain.on('antumi:panel-shortcut', (event, payload: unknown) => {
 
 // The version that runs, which a build may set apart from the source's package.json (a beta).
 ipcMain.handle('antumi:app-version', () => app.getVersion())
+// Saving a file the user asked to download. The renderer sends the bytes it already has (they came
+// over RPC from the source's own API) and the main process only asks where to put them: a page
+// cannot write to an arbitrary path, and it should not get to choose one silently either.
+ipcMain.handle('antumi:save-download', async (event, payload: unknown) => {
+  const parsed = z.object({ name: z.string().min(1).max(300), base64: z.string() }).safeParse(payload)
+  if (!parsed.success) return { ok: false as const, reason: 'invalid' }
+  const { name, base64 } = parsed.data
+  // The name is only a suggestion: it is sanitized before it reaches the dialog, and the dialog's
+  // answer is what is written.
+  const suggested = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 200) || 'attachment'
+  const answer = await dialog.showSaveDialog({ defaultPath: join(app.getPath('downloads'), suggested) })
+  if (answer.canceled || !answer.filePath) return { ok: false as const, reason: 'cancelled' }
+  try {
+    await writeFile(answer.filePath, Buffer.from(base64, 'base64'))
+    return { ok: true as const, path: answer.filePath }
+  } catch (error) {
+    return { ok: false as const, reason: error instanceof Error ? error.message : 'write-failed' }
+  }
+})
 ipcMain.handle('antumi:visualization-create', (event, document: unknown) => {
   if (event.senderFrame !== event.sender.mainFrame) throw new Error('Invalid visualization owner')
   return visualizationPages.create(event.sender.id, document)
@@ -340,6 +398,8 @@ ipcMain.handle('antumi:visualization-remove', (event, url: unknown) => {
 
 // Re-read on every call: core rewrites the file with a new port/token on restart.
 ipcMain.handle('antumi:core-endpoint', () => readCoreEndpoint())
+// Remote mode's failure is not a local core the user can start, so it has to say its own reason.
+ipcMain.handle('antumi:remote-problem', () => remoteCoreProblem())
 
 // Drives prefers-color-scheme in every window and the native chrome with it.
 ipcMain.handle('antumi:set-theme', (_event, theme: unknown) => {
@@ -640,7 +700,29 @@ app.on('second-instance', () => {
   }
 })
 
+// A packaged app has no console, so every diagnostic written with console.error — including the
+// reason a remote core would not come up — went nowhere. This writes the same lines to
+// <userData>/logs/main.log and keeps the console behaviour when there is one. A window that says
+// "waiting for core" is otherwise impossible to explain from the outside.
+function teeDiagnostics(): void {
+  if (!app.isPackaged) return
+  const dir = join(app.getPath('userData'), 'logs')
+  try { mkdirSync(dir, { recursive: true }) } catch { return }
+  const file = join(dir, 'main.log')
+  const write = (level: string, args: unknown[]) => {
+    try {
+      const line = args.map((value) => (value instanceof Error ? `${value.message}\n${value.stack ?? ''}` : typeof value === 'string' ? value : JSON.stringify(value))).join(' ')
+      appendFileSync(file, `${new Date().toISOString()} ${level} ${line}\n`)
+    } catch { /* logging must never break the app */ }
+  }
+  for (const level of ['error', 'warn', 'log'] as const) {
+    const original = console[level].bind(console)
+    console[level] = (...args: unknown[]) => { write(level.toUpperCase(), args); original(...args) }
+  }
+}
+
 void app.whenReady().then(async () => {
+  teeDiagnostics()
   if (!primary) return
   protocol.handle(PREVIEW_SCHEME, servePreview)
   protocol.handle(VISUALIZATION_SCHEME, (request) => visualizationPages.serve(request))
@@ -653,10 +735,18 @@ void app.whenReady().then(async () => {
   createWindow()
   void removeUpdateLeftovers()
   // After the backend: ensureBackend may move the home, and the host file belongs in the one core reads.
-  void ensureBackend().finally(() => startBrowserHost(slot, antumiPaths().browserHostFile, confirmLeavePage).then(
-    (host) => { browserHost = host },
-    (error: unknown) => console.error('[antumi] the browser host did not start', error)
-  ))
+  // Remote mode: the browser host still runs here (its tabs are this window's), but the file that
+  // announces it would land in *this* machine's home, which the remote core never reads — so the
+  // agent's browser tools would keep waiting for a host that is up. Gated until there is a channel
+  // for it (REMOTE-CORE.md §4.3); leaving it ungated would advertise a host nobody can reach.
+  const remote = readRemoteConfig()
+  void ensureBackend().finally(() => {
+    if (remote.kind === 'on') return
+    return startBrowserHost(slot, antumiPaths().browserHostFile, confirmLeavePage).then(
+      (host) => { browserHost = host },
+      (error: unknown) => console.error('[antumi] the browser host did not start', error)
+    )
+  })
   setInterval(() => void replaceOldDaemon(), OLD_DAEMON_CHECK_MS).unref()
   app.on('activate', () => {
     if (!mainWindow) {
@@ -674,6 +764,9 @@ app.on('before-quit', (event) => {
   session.defaultSession.flushStorageData()
   panelWindows.beginQuit()
   updater?.stop()
+  // Remote mode: the ssh forward is this app's own process and outlives us otherwise, leaving the
+  // next launch to find its port taken. It goes with the app, like the browser host below.
+  stopRemoteLink()
   if (quitting || !browserHost) return
   event.preventDefault()
   quitting = true

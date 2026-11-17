@@ -24,6 +24,8 @@ export type SourceIssueDetail = SourceIssue & {
   images?: readonly { name: string; bytes: Uint8Array }[]
   // Images left out because they were not asked for yet (fetch's images: false).
   imagesDeferred?: number
+  // Files the issue carries, named but not fetched; see SourceProvider.attachment.
+  attachments?: readonly { id: string; name: string; size: number | null }[]
 }
 
 export type SourceProvider = {
@@ -33,6 +35,10 @@ export type SourceProvider = {
   comments?(settings: SourceSettings, credential: SourceCredential, key: string, signal: AbortSignal, options: SourceCommentOptions): Promise<SourceCommentPage>
   // An image a comment names by id; core checks it as it does the issue's images.
   image?(settings: SourceSettings, credential: SourceCredential, key: string, id: string, signal: AbortSignal): Promise<{ name: string; bytes: Uint8Array }>
+  // One attachment's bytes, read only when asked: these run to tens of megabytes and are often
+  // never opened, so they are not part of the snapshot.
+  // progress: bytes read so far and the expected total, for a download long enough to report on.
+  attachment?(settings: SourceSettings, credential: SourceCredential, key: string, id: string, signal: AbortSignal, progress?: (read: number, total: number | null) => void): Promise<{ name: string; bytes: Uint8Array }>
   readonly settings: readonly SettingField[]
   // Checks and canonicalizes settings before they are saved; throws SourceError('invalid-settings').
   normalizeSettings(values: SourceSettings): Record<string, string> | Promise<Record<string, string>>

@@ -11,9 +11,7 @@ import { updateSetup } from '../setup-controller'
 import { configuredSources, preferredSetupAgent, setupResumable, setupStep } from '../setup-progress'
 import { useExternalSessionsWhen } from '../external-sessions'
 import { ChatPicker } from './ChatPicker'
-import { PetSpeech } from './PetSpeech'
 import { ResumableSessionList } from './ResumableSessions'
-import { usePetSkin } from './PetSprite'
 import { settingsSectionOf } from './SourceInboxView'
 import { AgentIcon } from './icons'
 import './setup-guide.css'
@@ -22,8 +20,6 @@ export function SetupGuide() {
   useLocale((state) => state.locale)
   const progress = usePreferences((state) => state.setup)
   const disabled = usePreferences((state) => state.disabledAgents)
-  const petLevel = usePreferences((state) => state.petLevel)
-  const petStyle = usePreferences((state) => state.petStyle)
   const environment = useCore((state) => state.environment)
   const providers = useCore((state) => state.modelProviders)
   const sources = useCore((state) => state.sources)
@@ -37,7 +33,6 @@ export function SetupGuide() {
   const features = useCore((state) => state.rpc?.features)
   const probes = useProviderProbes((state) => state.probes)
   const reduced = useReducedMotion()
-  const skin = usePetSkin(petStyle, 80, petLevel === 'off' || progress.status !== 'active' || readingGuide)
   const [refreshing, setRefreshing] = useState(false)
   const [sourceId, setSourceId] = useState<string | null>(null)
   // Looked for from the start, so it is there by the time the agent is.
@@ -76,18 +71,18 @@ export function SetupGuide() {
     : t('SetupGuide.done')
 
   return (
-    <aside className="setup-guide" aria-label={t('SetupGuide.title')} data-pet-avoid data-blocked={loginOpen || newTaskOpen || taskLaunchId !== null || undefined}>
+    <aside className="setup-guide" aria-label={t('SetupGuide.title')} data-blocked={loginOpen || newTaskOpen || taskLaunchId !== null || undefined}>
       <div className="setup-guide-inner">
-        {petLevel !== 'off' && <div className="setup-guide-pet" aria-hidden="true">{skin.render({ pose: step === 'done' ? 'review' : 'idle', walking: false, lookX: 0, lookY: 0, reduced })}</div>}
         <div className="setup-guide-speech">
-          <PetSpeech text={<span className="setup-guide-heading">
+          <div className="setup-guide-speech-content">
+            <div className="setup-guide-speech-text"><span className="setup-guide-heading">
               {step === 'agent' && agent && <ChatPicker
                 label={t('SetupGuide.chooseAgent')} value={agent} placeholder={t('SetupGuide.chooseAgent')} placement="above"
                 options={AGENT_KINDS.filter((kind) => environment?.checks.some((entry) => entry.tool === kind)).map((kind) => ({ value: kind, label: agentLabel(kind), icon: <AgentIcon agent={kind} />, description: agentReadinessText(agentReadiness(kind, environment, disabled, providers, probes), kind) }))}
                 onChange={(value) => { if (isAgentKind(value)) updateSetup({ agent: value, confirmed: null }) }}
               />}
               <span role="status">{text}</span>
-            </span>} dismiss={pause}>
+            </span></div>
             <div className="setup-guide-details">
               {step === 'agent' && descriptor && <p>{readiness?.state === 'missing' || readiness?.state === 'cli-missing' ? descriptor.environment.missing?.hint ?? descriptor.environment.install
                 : readiness?.state === 'incompatible-version' ? descriptor.environment.outdated?.status
@@ -122,7 +117,8 @@ export function SetupGuide() {
               {step !== 'waiting' && step !== 'sessions' && provider && <button type="button" className="button ghost" onClick={goProviders}>{t('SetupGuide.providers')}</button>}
               <button type="button" className="button ghost" onClick={pause} title={t('SetupGuide.resumeHint')}>{t('SetupGuide.pause')}</button>
             </div>
-          </PetSpeech>
+            <button type="button" className="setup-guide-dismiss" aria-label={t('SetupGuide.pause')} onClick={pause}>×</button>
+          </div>
         </div>
       </div>
     </aside>
