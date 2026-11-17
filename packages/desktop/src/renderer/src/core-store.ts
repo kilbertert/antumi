@@ -94,6 +94,9 @@ export type LoginState = {
 
 export type CoreState = {
   connection: ConnectionState
+  // Why core is unreachable when the main process knows (remote mode); null otherwise, so the
+  // status bar keeps its upstream hint.
+  coreProblem: string | null
   rpc: RpcConnection | null
   tasks: Record<string, Task>
   conversations: Record<string, Conversation>
@@ -250,6 +253,7 @@ export type CoreState = {
 
 export const useCore = create<CoreState>()(() => ({
   connection: 'connecting',
+  coreProblem: null,
   rpc: null,
   tasks: {},
   conversations: {},
@@ -1536,6 +1540,10 @@ export function startCoreConnection(scope: 'app' | 'requests' = 'app'): void {
       const endpoint = await resolveCoreEndpoint()
       if (!endpoint) {
         useCore.setState({ connection: 'waiting-for-core', rpc: null })
+        // In remote mode there is no local core coming, so the generic "start the dev server"
+        // hint is actively wrong. Read the main process's own reason when it has one.
+        const reason = await window.antumi?.getRemoteProblem?.()
+        useCore.setState({ coreProblem: typeof reason === 'string' && reason.length > 0 ? reason : null })
         await sleep(RETRY_MS)
         continue
       }

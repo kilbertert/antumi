@@ -19,14 +19,14 @@ App 靠 `%USERPROFILE%\.antumi\remote.json` 判断是否进入远程模式。**�
 ```json
 {
   "sshHost": "dev-us",
-  "corePort": 12150,
+  "corePort": 19450,
   "remoteHome": "/home/claude/.antumi-remote",
   "startCommand": "bash /home/claude/Projects/antumi/ops/remote-core.sh start"
 }
 ```
 
 - `sshHost` 用你 SSH config 里的 `dev-us`（已知指向 `100.119.182.24`），你的 key 完成认证。
-- 端口 **12150** 两端一致，已确认空闲。
+- 端口 **19450** 两端一致，已确认空闲。
 - 想回到本地模式：删掉这个文件，重启 App。
 
 PowerShell 一行：
@@ -38,10 +38,10 @@ notepad "$env:USERPROFILE\.antumi\remote.json"
 
 ## 服务器侧已经就绪
 
-- core 正在 `127.0.0.1:12150` 运行，home 是 `/home/claude/.antumi-remote`（与交互式实例隔离）。
+- core 正在 `127.0.0.1:19450` 运行，home 是 `/home/claude/.antumi-remote`（与交互式实例隔离）。
   管理：`bash ~/Projects/antumi/ops/remote-core.sh {start|stop|status}`
 - **不需要开任何端口**：core 仍只监听回环，Windows 经 SSH 本地转发接入。
-- 已验证：Windows `ssh -L 12150` 通、App 握手用的 `cat core.json` 从 Windows 侧可读。
+- 已验证：Windows `ssh -L 19450` 通、App 握手用的 `cat core.json` 从 Windows 侧可读。
 
 ## 打开后应该看到什么
 
@@ -72,8 +72,8 @@ App 的日志在 `%APPDATA%\Antumi\logs\`（若目录不同，`dir /s /b %APPDAT
   ```
 - 手工复现转发（应显示 True）：
   ```
-  ssh -N -L 127.0.0.1:12150:127.0.0.1:12150 dev-us
-  powershell -c "Test-NetConnection 127.0.0.1 -Port 12150 -InformationLevel Quiet"
+  ssh -N -L 127.0.0.1:19450:127.0.0.1:19450 dev-us
+  powershell -c "Test-NetConnection 127.0.0.1 -Port 19450 -InformationLevel Quiet"
   ```
 
 把 `main.log` 里 `[antumi]` 开头的行贴给我即可。

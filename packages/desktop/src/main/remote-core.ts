@@ -95,6 +95,40 @@ function waitForPort(port: number, until: number): Promise<boolean> {
   })
 }
 
+function waitForPortFree(port: number, until: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const attempt = () => {
+      void isPortFree(port).then((free) => {
+        if (free) return resolve(true)
+        if (Date.now() > until) return resolve(false)
+        setTimeout(attempt, 250)
+      })
+    }
+    attempt()
+  })
+}
+
+// The executable name behind a PID, for telling our own ssh apart from anything else.
+function processName(pid: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const args = process.platform === 'win32'
+      ? ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']
+      : ['-p', String(pid), '-o', 'comm=']
+    const child = spawn(process.platform === 'win32' ? 'tasklist' : 'ps', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    let out = ''
+    const timer = setTimeout(() => { child.kill(); resolve(null) }, 4_000)
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => { out += chunk })
+    child.once('error', () => { clearTimeout(timer); resolve(null) })
+    child.once('close', () => {
+      clearTimeout(timer)
+      const first = out.split(/\r?\n/).find((line) => line.trim().length > 0)
+      if (!first) return resolve(null)
+      const name = process.platform === 'win32' ? (first.split('","')[0] ?? first).replace(/^"/, '') : first.trim()
+      resolve(name || null)
+    })
+  })
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // The remote core's endpoint as the far side wrote it. Read over ssh rather than through the
@@ -121,6 +155,32 @@ function readRemoteEndpoint(config: RemoteCoreConfig, sshArgs: string[]): Promis
   })
 }
 
+// Which process holds a port, so a stale forward of our own can be told apart from someone
+// else's. Windows: netstat -ano prints the PID in the last column. Elsewhere: lsof.
+function pidOnPort(port: number): Promise<number | null> {
+  return new Promise((resolve) => {
+    const command = process.platform === 'win32'
+      ? { cmd: 'netstat', args: ['-ano'] }
+      : { cmd: 'lsof', args: ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'] }
+    const child = spawn(command.cmd, command.args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    let out = ''
+    const timer = setTimeout(() => { child.kill(); resolve(null) }, 5_000)
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => { out += chunk })
+    child.once('error', () => { clearTimeout(timer); resolve(null) })
+    child.once('close', () => {
+      clearTimeout(timer)
+      if (process.platform === 'win32') {
+        const line = out.split(/\r?\n/).find((row) => row.includes(`:${port} `) && /LISTENING/i.test(row))
+        const pid = line?.trim().split(/\s+/).at(-1)
+        resolve(pid && /^\d+$/.test(pid) ? Number(pid) : null)
+      } else {
+        const pid = out.trim().split(/\s+/)[0]
+        resolve(pid && /^\d+$/.test(pid) ? Number(pid) : null)
+      }
+    })
+  })
+}
+
 // One argv element, quoted for the remote login shell. The paths this is used with are operator
 // supplied, so it is escaped rather than trusted.
 function shellQuote(value: string): string {
@@ -137,17 +197,33 @@ export function createRemoteLink(config: RemoteCoreConfig): RemoteLink {
     tunnel = null
   }
 
+
+
+  // An ssh process listening on our port with nothing of ours behind it is a forward a previous
+  // run left behind (a crash, a killed parent). It is ours to clear; anything else is not.
+  async function clearStaleForward(): Promise<boolean> {
+    if (await isPortFree(config.corePort)) return true
+    const pid = await pidOnPort(config.corePort)
+    if (pid === null) return false
+    const name = await processName(pid)
+    if (name === null || !/^ssh(\.exe)?$/i.test(name)) return false
+    try { process.kill(pid) } catch { return false }
+    return await waitForPortFree(config.corePort, Date.now() + 5_000)
+  }
+
   async function ensureOnce(): Promise<CoreEndpoint> {
-    // A stale tunnel from a previous app run would make the port look taken; nothing else knows
-    // about it, so it is ours to clear.
-    if (!(await isPortFree(config.corePort))) {
-      // Either our own tunnel (already up) or something the user runs on that port. Probe it: if
-      // core answers, reuse the link instead of failing a start the user cannot see the cause of.
-      if (await waitForPort(config.corePort, Date.now() + 1_000)) {
-        const endpoint = await readRemoteEndpoint(config, sshArgs)
-        if (endpoint) return endpoint
+    // Reuse a link that is already good (another window, or this app's earlier attempt).
+    if (!(await isPortFree(config.corePort)) && await waitForPort(config.corePort, Date.now() + 1_000)) {
+      const live = await readRemoteEndpoint(config, sshArgs)
+      if (live) return { ...live, port: config.corePort }
+    }
+    // Otherwise a forward from a previous run is squatting on our port; clear it rather than
+    // failing, because the user's fix would be "find and kill an ssh.exe" — not something a
+    // window that says "waiting for core" tells them.
+    if (!(await clearStaleForward())) {
+      if (!(await isPortFree(config.corePort))) {
+        throw new Error(`port ${config.corePort} is in use by another program on this machine; change corePort in remote.json`)
       }
-      throw new Error(`port ${config.corePort} is already in use on this machine`)
     }
 
     if (config.startCommand) {
@@ -216,3 +292,8 @@ export async function remoteEndpointIfUp(config: RemoteCoreConfig): Promise<Core
 }
 
 export { sleep as remoteSleep }
+
+// The two probes behind "clear our own leftover forward, refuse a foreign listener". Exported for
+// the test that pins that distinction; not part of the mode's API.
+export const __testPortFree = isPortFree
+export const __testPidOnPort = pidOnPort

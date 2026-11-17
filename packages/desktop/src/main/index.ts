@@ -8,7 +8,7 @@ import { connectRpc, coreUrl, resolveUiLocale, UiLocale } from '@antumi/protocol
 import { applicationMenu } from './application-menu'
 import { ShortcutAction, ShortcutSettings } from '../shared/keyboard-shortcuts'
 import { antumiPaths, readCoreEndpoint } from '@antumi/protocol/node'
-import { ensureBackend, replaceOldDaemon, stopBackendForInstall, stopRemoteLink } from './backend'
+import { ensureBackend, remoteCoreProblem, replaceOldDaemon, stopBackendForInstall, stopRemoteLink } from './backend'
 import { readRemoteConfig } from './remote-core'
 import { popupWindowOptions, RequestPopup } from './request-popup'
 import { defaultIslandMode, islandDisplay } from './popup-placement'
@@ -368,6 +368,8 @@ ipcMain.handle('antumi:visualization-remove', (event, url: unknown) => {
 
 // Re-read on every call: core rewrites the file with a new port/token on restart.
 ipcMain.handle('antumi:core-endpoint', () => readCoreEndpoint())
+// Remote mode's failure is not a local core the user can start, so it has to say its own reason.
+ipcMain.handle('antumi:remote-problem', () => remoteCoreProblem())
 
 // Drives prefers-color-scheme in every window and the native chrome with it.
 ipcMain.handle('antumi:set-theme', (_event, theme: unknown) => {

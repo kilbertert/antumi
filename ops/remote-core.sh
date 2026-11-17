@@ -10,7 +10,7 @@
 set -euo pipefail
 
 export ANTUMI_HOME=${ANTUMI_HOME:-/home/claude/.antumi-remote}
-export ANTUMI_PORT=${ANTUMI_PORT:-12150}
+export ANTUMI_PORT=${ANTUMI_PORT:-19450}
 ANTUMI=/home/claude/Projects/antumi
 logs=$ANTUMI_HOME/logs
 mkdir -p "$logs"

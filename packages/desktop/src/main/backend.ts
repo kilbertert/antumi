@@ -194,6 +194,15 @@ export type BackendStop = { stopped: true } | { stopped: false; blockers: Instal
 // that already serializes that.
 let remoteLink: RemoteLink | null = null
 
+// Why the remote link is not up, for the renderer to show. The status bar's "waiting for core"
+// names a local core that will never appear here, so a remote failure has to say its own reason:
+// a bad ssh host and an occupied port otherwise look identical on screen. Null once it is up.
+let remoteProblem: string | null = null
+
+export function remoteCoreProblem(): string | null {
+  return remoteProblem
+}
+
 // Teardown for quit, and for the install path (a forward left behind would make the next launch
 // think the port is taken). Idempotent.
 export function stopRemoteLink(): void {
@@ -297,6 +306,7 @@ export function ensureBackend(): Promise<void> {
     if (remote.kind === 'broken') {
       // Half-configured is treated as an error, not as "off": falling back to local silently is
       // exactly the failure this mode exists to avoid.
+      remoteProblem = remote.problem
       console.error(`[antumi] remote core is misconfigured, staying offline: ${remote.problem}`)
       return
     }
@@ -304,10 +314,12 @@ export function ensureBackend(): Promise<void> {
       remoteLink ??= createRemoteLink(remote.config)
       try {
         await remoteLink.ensure()
+        remoteProblem = null
       } catch (error) {
         // No local fallback on purpose: the user asked for the remote runtime, and starting one
         // here would put their work somewhere they did not choose.
-        console.error(`[antumi] remote core unavailable: ${error instanceof Error ? error.message : String(error)}`)
+        remoteProblem = error instanceof Error ? error.message : String(error)
+        console.error(`[antumi] remote core unavailable: ${remoteProblem}`)
       }
       return
     }

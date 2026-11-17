@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('antumi', {
     return () => ipcRenderer.removeListener('antumi:full-screen', handler)
   },
   getCoreEndpoint: (): Promise<unknown> => ipcRenderer.invoke('antumi:core-endpoint'),
+  // Why a remote core is not up, when remote mode is on; null otherwise.
+  getRemoteProblem: (): Promise<unknown> => ipcRenderer.invoke('antumi:remote-problem'),
   appVersion: (): Promise<unknown> => ipcRenderer.invoke('antumi:app-version'),
   visualizationCreate: (document: string): Promise<unknown> => ipcRenderer.invoke('antumi:visualization-create', document),
   visualizationRemove: (url: string): Promise<unknown> => ipcRenderer.invoke('antumi:visualization-remove', url),
