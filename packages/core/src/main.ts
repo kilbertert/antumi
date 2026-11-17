@@ -28,7 +28,6 @@ import { PluginService } from './plugin-service'
 import { ProjectStar } from './project-star'
 import { PullRequestStore } from './pull-request-store'
 import type { PullRequestService } from './pull-request-service'
-import { PetLibrary } from './pet-library'
 import { createRpcHandlers } from './rpc-handlers'
 import { SessionImports } from './session-imports'
 import { SquadService } from './squad-service'
@@ -379,11 +378,6 @@ ${comments}` }, [], Infinity)
 const plugins = new PluginService(path.join(paths.home, 'plugins'), packageJson.version, sources, sourceConfig, [],
   (plugins) => server?.broadcast('plugins.changed', { plugins }))
 await plugins.load()
-const pets = new PetLibrary(path.join(paths.home, 'pets'), {
-  developmentDirectory: process.env.ANTUMI_PET_DIRECTORY,
-  changed: (state) => server?.broadcast('pets.changed', state)
-})
-await pets.load()
 
 const usageSources: Partial<Record<AgentKind, UsageSource>> = {}
 const resetCreditUses: Partial<Record<AgentKind, ResetCreditUse>> = {}
@@ -748,7 +742,7 @@ server = await startRpcServer({
     store: attachments,
     uploads: new AttachmentUploads(attachments),
     sweeper: attachmentSweeper
-  }, terminals, worktrees, browser, awake, terminalCommands, limits, runs, turns, chatSettings, environment, schedules, chatCommands, routines, discussions, wire, () => { server?.broadcast('git.changed', {}); profiles.tick() }, squads, todos, plugins, skills, mcpServers, smallModels, projectConfigs, modelProviders, sessionImports, accounts, cliMaintenance, analytics, automation, pets, new ProjectStar(sources), profiles, bookmarks, browserHistory, sourceUpdates,
+  }, terminals, worktrees, browser, awake, terminalCommands, limits, runs, turns, chatSettings, environment, schedules, chatCommands, routines, discussions, wire, () => { server?.broadcast('git.changed', {}); profiles.tick() }, squads, todos, plugins, skills, mcpServers, smallModels, projectConfigs, modelProviders, sessionImports, accounts, cliMaintenance, analytics, automation, new ProjectStar(sources), profiles, bookmarks, browserHistory, sourceUpdates,
     { store: pullRequestStore, changed: (taskId, links) => server?.broadcast('pullRequests.changed', { taskId, links }), ready: (service) => { pullRequests.current = service } }, browserSites, mobile, channels)
 })
 await writeCoreEndpoint({ port: server.port, token, pid: process.pid, protocolVersion: PROTOCOL_VERSION, version: packageJson.version })
@@ -805,7 +799,6 @@ async function shutdown(): Promise<void> {
   sourceInvestigations?.suspend()
   sources.stop()
   await plugins.close()
-  await pets.close()
   await sources.pause(sources.list().map((source) => source.provider))
   awake?.stop()
   cliMaintenance.close()
