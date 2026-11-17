@@ -7,6 +7,7 @@ import { app } from 'electron'
 import { z } from 'zod'
 import { AGENT_KINDS, agentDescriptor, type AgentKind, type CoreEndpoint } from '@antumi/protocol'
 import { antumiPaths, daemonSchemas, readCoreEndpoint } from '@antumi/protocol/node'
+import { createRemoteLink, readRemoteConfig, type RemoteLink } from './remote-core'
 
 // Where CLIs land that a Finder-launched app's minimal PATH misses.
 const EXTRA_PATH_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', join(homedir(), '.local/bin')]
@@ -188,12 +189,40 @@ export type InstallBlocker = { sessionId: string; agent?: AgentKind }
 // could not be shown to have stopped (no answer, or still there after the wait).
 export type BackendStop = { stopped: true } | { stopped: false; blockers: InstallBlocker[] | null }
 
+// Remote mode: the tunnel for this app run. Held here rather than in index.ts because starting it
+// is the same lifecycle problem as starting a local backend, and ensureBackend is the one place
+// that already serializes that.
+let remoteLink: RemoteLink | null = null
+
+// Teardown for quit, and for the install path (a forward left behind would make the next launch
+// think the port is taken). Idempotent.
+export function stopRemoteLink(): void {
+  remoteLink?.stop()
+  remoteLink = null
+}
+
+// The remote core, if a tunnel is already up. Never starts anything: callers use this to decide
+// what to *report*, and only ensureBackend is allowed to bring core up.
+export async function remoteCoreIfUp(): Promise<CoreEndpoint | null> {
+  const state = readRemoteConfig()
+  if (state.kind !== 'on') return null
+  const local = await readCoreEndpoint()
+  return local && local.port === state.config.corePort ? local : null
+}
+
 // Before an installer replaces the app's files, which Windows will not do while daemon and core
 // run from them (and the NSIS installer ends every Antumi.exe it finds): the daemon leaves only if
 // it runs nothing (it decides, as for retireOldDaemon), then core goes. Running agents are never
 // stopped for an update; which sessions run comes back instead. Nothing counts as stopped until
 // its process is seen gone.
 export async function stopBackendForInstall(): Promise<BackendStop> {
+  // Remote mode: core and every agent live on the other machine, so there is nothing here to stop
+  // for the installer — replacing this app's files cannot disturb them. The tunnel must go, or the
+  // next launch finds its own port occupied and reports it as a conflict.
+  if (readRemoteConfig().kind === 'on') {
+    stopRemoteLink()
+    return { stopped: true }
+  }
   const presence = await daemonPresence()
   if (presence === 'unknown') return { stopped: false, blockers: null }
   if (presence === 'there') {
@@ -260,6 +289,29 @@ function serialized(work: () => Promise<void>): Promise<void> {
 export function ensureBackend(): Promise<void> {
   if (!app.isPackaged) return Promise.resolve()
   return serialized(async () => {
+    // Remote mode branches before anything local is considered. This ordering is the point: the
+    // previous behaviour of "no core answers on 127.0.0.1, so launch one" would, against a remote
+    // setup, start a *second* core on this machine while the user's tasks live on the other side —
+    // two databases, no error, wrong data on screen. The check has to come first, not later.
+    const remote = readRemoteConfig()
+    if (remote.kind === 'broken') {
+      // Half-configured is treated as an error, not as "off": falling back to local silently is
+      // exactly the failure this mode exists to avoid.
+      console.error(`[antumi] remote core is misconfigured, staying offline: ${remote.problem}`)
+      return
+    }
+    if (remote.kind === 'on') {
+      remoteLink ??= createRemoteLink(remote.config)
+      try {
+        await remoteLink.ensure()
+      } catch (error) {
+        // No local fallback on purpose: the user asked for the remote runtime, and starting one
+        // here would put their work somewhere they did not choose.
+        console.error(`[antumi] remote core unavailable: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      return
+    }
+
     const daemonReplaced = await retireOldDaemon()
     const running = await runningCore()
     const coreCurrent = running?.version === app.getVersion()

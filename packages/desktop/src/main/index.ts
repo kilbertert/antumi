@@ -4,11 +4,12 @@ import { spawn } from 'node:child_process'
 import { dirname, extname, isAbsolute, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, protocol, screen, session, shell, type OpenDialogOptions, type WebContents } from 'electron'
 import { z } from 'zod'
-import { resolveUiLocale, UiLocale } from '@antumi/protocol'
+import { connectRpc, coreUrl, resolveUiLocale, UiLocale } from '@antumi/protocol'
 import { applicationMenu } from './application-menu'
 import { ShortcutAction, ShortcutSettings } from '../shared/keyboard-shortcuts'
 import { antumiPaths, readCoreEndpoint } from '@antumi/protocol/node'
-import { ensureBackend, replaceOldDaemon, stopBackendForInstall } from './backend'
+import { ensureBackend, replaceOldDaemon, stopBackendForInstall, stopRemoteLink } from './backend'
+import { readRemoteConfig } from './remote-core'
 import { popupWindowOptions, RequestPopup } from './request-popup'
 import { defaultIslandMode, islandDisplay } from './popup-placement'
 import { PanelWindows, parseDockPayload, parseHandoff, parsePanelCommands, parsePanelKind } from './panel-windows'
@@ -60,12 +61,49 @@ const PREVIEW_POLICY = [
   "base-uri 'none'", "form-action 'none'"
 ].join('; ')
 
+// The same URL, read on the far side: core owns that filesystem, and files.read is the call the
+// chat already trusts for text. One connection is kept and reopened on failure, because core
+// restarts change the port and token in core.json.
+let previewRpc: { url: string; connection: Awaited<ReturnType<typeof connectRpc>> } | null = null
+async function remotePreviewRpc() {
+  const endpoint = await readCoreEndpoint()
+  if (!endpoint) return null
+  const url = coreUrl(endpoint)
+  if (previewRpc?.url === url) return previewRpc.connection
+  const connection = await connectRpc(url)
+  previewRpc = { url, connection }
+  return connection
+}
+
+async function serveRemotePreview(path: string): Promise<Response> {
+  try {
+    const rpc = await remotePreviewRpc()
+    if (!rpc) return new Response('not found', { status: 404 })
+    // The file's own folder is the root it is allowed from; a path outside it is refused by core.
+    const roots = [dirname(path)]
+    const read = await rpc.call('files.read', { roots, path })
+    if (read.kind !== 'text') return new Response('not found', { status: 404 })
+    const type = PREVIEW_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
+    // Only text arrives this way; an image extension would be mislabelled as text, so say so.
+    if (!type.startsWith('text/') && type !== 'application/json' && type !== 'image/svg+xml') return new Response('not found', { status: 404 })
+    const content = type.startsWith('text/html') ? previewHtml(read.text) : read.text
+    return new Response(content, { headers: { 'content-type': type, 'content-security-policy': PREVIEW_POLICY, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } })
+  } catch {
+    return new Response('not found', { status: 404 })
+  }
+}
+
 async function servePreview(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const named = decodeURIComponent(url.pathname)
   // A Windows path comes as /C:/x (see urlPath in the renderer).
   const path = process.platform === 'win32' && /^\/[a-zA-Z]:\//.test(named) ? named.slice(1) : named
   if (url.host !== 'file' || !isAbsolute(path)) return new Response('not found', { status: 404 })
+  // Remote mode: the file lives on the machine that runs the agents, so it is read through core
+  // rather than off this disk. Same scheme and same URL, so the chat renderer needs no change;
+  // only the text/binary split differs, which is why images fall into 'unavailable' here — see
+  // REMOTE-CORE.md §4.4 for the RPC that would close that gap.
+  if (readRemoteConfig().kind === 'on') return serveRemotePreview(path)
   try {
     // The path as it really is: a link may not lead the frame somewhere else under a page's name.
     const real = await realpath(path)
@@ -643,10 +681,18 @@ void app.whenReady().then(async () => {
   createWindow()
   void removeUpdateLeftovers()
   // After the backend: ensureBackend may move the home, and the host file belongs in the one core reads.
-  void ensureBackend().finally(() => startBrowserHost(slot, antumiPaths().browserHostFile, confirmLeavePage).then(
-    (host) => { browserHost = host },
-    (error: unknown) => console.error('[antumi] the browser host did not start', error)
-  ))
+  // Remote mode: the browser host still runs here (its tabs are this window's), but the file that
+  // announces it would land in *this* machine's home, which the remote core never reads — so the
+  // agent's browser tools would keep waiting for a host that is up. Gated until there is a channel
+  // for it (REMOTE-CORE.md §4.3); leaving it ungated would advertise a host nobody can reach.
+  const remote = readRemoteConfig()
+  void ensureBackend().finally(() => {
+    if (remote.kind === 'on') return
+    return startBrowserHost(slot, antumiPaths().browserHostFile, confirmLeavePage).then(
+      (host) => { browserHost = host },
+      (error: unknown) => console.error('[antumi] the browser host did not start', error)
+    )
+  })
   setInterval(() => void replaceOldDaemon(), OLD_DAEMON_CHECK_MS).unref()
   app.on('activate', () => {
     if (!mainWindow) {
@@ -664,6 +710,9 @@ app.on('before-quit', (event) => {
   session.defaultSession.flushStorageData()
   panelWindows.beginQuit()
   updater?.stop()
+  // Remote mode: the ssh forward is this app's own process and outlives us otherwise, leaving the
+  // next launch to find its port taken. It goes with the app, like the browser host below.
+  stopRemoteLink()
   if (quitting || !browserHost) return
   event.preventDefault()
   quitting = true
