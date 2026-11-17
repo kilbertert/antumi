@@ -1,0 +1,6 @@
+{
+  "sshHost": "dev-us",
+  "corePort": 19450,
+  "remoteHome": "/home/claude/.antumi-remote",
+  "startCommand": "bash /home/claude/Projects/antumi/ops/remote-core.sh start"
+}

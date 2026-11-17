@@ -20,7 +20,6 @@ import type { ProjectRegistry } from './project-registry'
 import { Rejection } from './rejection'
 import { localSkillFolders } from './local-skills'
 import type { PluginService } from './plugin-service'
-import type { PetLibrary } from './pet-library'
 import type { SourceUpdates } from './source-updates'
 import type { SourceService } from './source-service'
 import type { Connection, RpcHandlers } from './rpc-server'
@@ -114,7 +113,6 @@ export function createRpcHandlers(
   cliMaintenance?: AgentCliMaintenance,
   analytics?: UsageAnalytics,
   automation?: UsageAutomation,
-  pets?: PetLibrary,
   projectStar?: ProjectStar,
   profiles?: AgentProfileService,
   bookmarks?: BookmarkStore,
@@ -129,7 +127,7 @@ export function createRpcHandlers(
     if (!mobile) throw new Rejection('mobile-unavailable')
     return mobile
   }
-  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'pets' || Boolean(pets)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
+  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
   const channelService = (): ChannelService => {
     if (!channels) throw new Rejection('channels-unavailable')
     return channels
@@ -160,10 +158,6 @@ export function createRpcHandlers(
   const historyStore = (): BrowserHistoryStore => {
     if (!browserHistory) throw new Rejection('browser-history-unavailable')
     return browserHistory
-  }
-  const petLibrary = (): PetLibrary => {
-    if (!pets) throw new Rejection('pets-unavailable')
-    return pets
   }
   const maintenance = (): AgentCliMaintenance => {
     if (!cliMaintenance) throw new Rejection('agent-cli-maintenance-unavailable')
@@ -365,11 +359,6 @@ export function createRpcHandlers(
       }, conversationId ? conversations.quickProvider(conversationId) : undefined)
       return { message: cleanCommitMessage(answer.text), model: answer.model }
     },
-    'pets.list': ({ refresh }) => petLibrary().list(refresh),
-    'pets.install': ({ id }) => petLibrary().install(id),
-    'pets.cancel': ({ id }) => { petLibrary().cancel(id); return OK },
-    'pets.remove': ({ id }) => petLibrary().remove(id),
-    'pets.read': ({ id }) => petLibrary().read(id),
     'system.hello': ({ client }, connection) => {
       if (client?.kind === 'mobile') mobileService().authorize(connection, client.deviceId)
       // From here on the connection may only run that conversation's tools.
@@ -896,6 +885,7 @@ export function createRpcHandlers(
     'sources.refresh': ({ provider, instance }) => sources.refresh(provider, instance),
     'sources.issue': ({ provider, instance, key, images }) => sources.issue(provider, instance, key, images),
     'sources.issueComments': ({ provider, instance, key, options }) => sources.issueComments(provider, instance, key, options),
+    'sources.attachment': ({ provider, instance, key, attachmentId, expectedSize }) => sources.attachment(provider, instance, key, attachmentId, expectedSize ?? null),
     'sources.import': ({ provider, instance, key, agent }) => sources.import(provider, instance, key, agent ?? null),
     'sources.investigate': ({ provider, instance, key, ...options }) => sources.investigate(provider, instance, key, options),
     'sources.retryInvestigation': ({ id }) => sources.retryInvestigation(id),

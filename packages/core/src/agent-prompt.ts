@@ -126,7 +126,7 @@ function sourceSection(task: Pick<Task, 'source' | 'sourceSnapshot' | 'channelSo
     const origin = task.channelSource
     return untrustedSource({ provider: 'channel', instance: 'default', name: origin.platform, key: origin.requestId, url: `antumi://conversation/${origin.conversationId}` }, {
       markdown: JSON.stringify({ asker: origin.asker, place: origin.place, messageId: origin.messageId, text: origin.text }),
-      fetchedAt: origin.createdAt, images: []
+      fetchedAt: origin.createdAt, images: [], attachments: []
     })
   }
   return task.source ? untrustedSource(task.source, task.sourceSnapshot, images.source) : null

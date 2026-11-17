@@ -41,7 +41,6 @@ import { TaskLaunchDialog } from './components/TaskLaunchDialog'
 import { usePreferences } from './preferences'
 import { usePortPolling } from './port-state'
 import { useUpdateFeed } from './update-state'
-import { AppPet } from './components/AppPet'
 import { recordingPanelShortcut, usePanelShortcuts } from './panel-shortcuts'
 
 // Esc goes from a task back to the board, unless it is meant for what has the focus:
@@ -205,7 +204,6 @@ export function App() {
       {loginOpen && <SourceLoginDialog />}
       <ProjectTrustDialog />
       {error && !newTaskOpen && !taskLaunchId && <ErrorToast message={error} />}
-      <AppPet />
     </div>
   )
 }

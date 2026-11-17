@@ -12,6 +12,11 @@ declare global {
       platform: string
       onFullScreenChange(listener: (fullScreen: boolean) => void): () => void
       getCoreEndpoint(): Promise<unknown>
+      // Remote mode only: why the link is not up (bad ssh host, occupied port). Absent from a
+      // main older than the renderer, which is why callers fall back to the generic hint.
+      getRemoteProblem?(): Promise<unknown>
+      // Absent from a main older than the renderer, which is why the download button checks.
+      saveDownload?(payload: { name: string; base64: string }): Promise<unknown>
       // Absent from a main older than the renderer.
       appVersion?(): Promise<unknown>
       visualizationCreate?(document: string): Promise<unknown>
