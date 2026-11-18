@@ -59,6 +59,21 @@ describe('TaskStore migrations', () => {
     store.close()
   })
 
+  it('commits a solution handoff and its source together, rejecting duplicate writes', () => {
+    const first = new TaskStore(file)
+    const solutionId = '11111111-1111-4111-8111-111111111111'
+    const source = { provider: 'zentao', instance: 'default', key: 'story-1', name: 'ZenTao', url: 'https://example.test/1' }
+    const snapshot = { markdown: 'original', fetchedAt: 100, images: [], attachments: [] }
+    const task = first.create('Solution', { details: 'accepted', source, sourceSnapshot: snapshot }, solutionId)
+    first.close()
+    const reopened = new TaskStore(file)
+    expect(reopened.requirementTask(solutionId)).toMatchObject({ id: task.id, source, sourceSnapshot: snapshot })
+    // A duplicate writer fails inside the transaction; no orphan task survives.
+    expect(() => reopened.create('Duplicate', {}, solutionId)).toThrow()
+    expect(reopened.list()).toHaveLength(1)
+    reopened.close()
+  })
+
   it('persists channel origins and atomically rejects duplicate messages after reopening', () => {
     const source = {
       channelId: '11111111-1111-4111-8111-111111111111', requestId: '22222222-2222-4222-8222-222222222222',

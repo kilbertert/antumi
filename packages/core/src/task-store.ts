@@ -446,7 +446,12 @@ export const MIGRATIONS = [
   `ALTER TABLE discussion_members ADD COLUMN model_provider TEXT;`,
   // Keep the origin and deduplication with the task, beyond the channel record's retention.
   `ALTER TABLE tasks ADD COLUMN channel_source TEXT;
-   CREATE UNIQUE INDEX tasks_channel_message ON tasks(json_extract(channel_source, '$.channelId'), json_extract(channel_source, '$.tenant'), json_extract(channel_source, '$.place'), json_extract(channel_source, '$.messageId')) WHERE channel_source IS NOT NULL;`
+   CREATE UNIQUE INDEX tasks_channel_message ON tasks(json_extract(channel_source, '$.channelId'), json_extract(channel_source, '$.tenant'), json_extract(channel_source, '$.place'), json_extract(channel_source, '$.messageId')) WHERE channel_source IS NOT NULL;`,
+  `CREATE TABLE requirements (id TEXT PRIMARY KEY, provider TEXT NOT NULL, instance TEXT NOT NULL,
+     source_key TEXT NOT NULL, binding TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL, updated_at INTEGER NOT NULL,
+     UNIQUE(provider, instance, binding, source_key));
+   CREATE TABLE requirement_tasks (solution_id TEXT PRIMARY KEY,
+     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE);`,
 ]
 
 
@@ -714,12 +719,19 @@ export class TaskStore {
     return this.many(`${SELECT} WHERE json_extract(channel_source, '$.channelId') = ? AND json_extract(channel_source, '$.tenant') = ? AND json_extract(channel_source, '$.place') = ? AND json_extract(channel_source, '$.messageId') = ?`, source.channelId, source.tenant, source.place, source.messageId)[0] ?? null
   }
 
-  create(title: string, initial: Pick<TaskPatch, 'details' | 'repos' | 'channelSource'> = {}): Task {
+  requirementTask(solutionId: string): Task | null {
+    const row = this.db.prepare('SELECT task_id FROM requirement_tasks WHERE solution_id = ?').get(solutionId)
+    return row ? this.get(z.object({ task_id: z.string() }).parse(row).task_id) : null
+  }
+
+  create(title: string, initial: Pick<TaskPatch, 'details' | 'repos' | 'channelSource' | 'source' | 'sourceSnapshot'> = {}, solutionId?: string): Task {
     const id = randomUUID()
     const at = this.now()
     this.transaction(() => {
-      this.db.prepare(`INSERT INTO tasks (id, title, details, channel_source, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'pending', ?, ?)`).run(id, title, initial.details ?? '', initial.channelSource ? JSON.stringify(initial.channelSource) : null, at, at)
+      this.db.prepare(`INSERT INTO tasks (id, title, details, channel_source, source, source_snapshot, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`).run(id, title, initial.details ?? '', initial.channelSource ? JSON.stringify(initial.channelSource) : null,
+          initial.source ? JSON.stringify(initial.source) : null, initial.sourceSnapshot ? JSON.stringify(initial.sourceSnapshot) : null, at, at)
+      if (solutionId) this.db.prepare('INSERT INTO requirement_tasks (solution_id, task_id) VALUES (?, ?)').run(solutionId, id)
       for (const [position, repo] of (initial.repos ?? []).entries()) {
         this.db.prepare('INSERT INTO task_repos (task_id, position, path, worktree_path, branch, start_ref) VALUES (?, ?, ?, ?, ?, ?)')
           .run(id, position, repo.path, repo.worktreePath, repo.branch, repo.startRef)

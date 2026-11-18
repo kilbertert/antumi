@@ -1,7 +1,9 @@
+import { Requirement, RequirementEdit, RequirementRef, RequirementFields } from './requirement'
 import { z } from 'zod'
 import { SourceAttachmentData, AutoInvestigationConfig, AutoInvestigationInfo, AutoInvestigationPage, AutoInvestigationRun } from './source'
 import { SourceCommentOptions, SourceCommentPage, SourceDeliveryInfo, SourceUpdateTarget, SourceUpdateSummary, SourceUpdates } from './source-comments'
 import { BrowserDownload, BrowserDownloadAction, BrowserUploadOptions } from './browser'
+import { ChatImage } from './chat'
 import { ChatReference } from './chat-reference'
 import { AgentProfile, AgentProfileFields, AgentCall, AgentCallResumeCheck, AgentCallWorkspace, DelegationTarget, DirectAgentCall } from './agent-profile'
 import { gitParams, GitProject, GitTarget, GitBranch, GitStatus, GitHistory, GitDetail, GitComparison, GitAction, GitResult, GitOutgoing } from './git'
@@ -131,7 +133,7 @@ const UsageParams = z.object({ windowKinds: z.array(z.string()).optional() })
 // pasted-text: a long paste is uploaded as an attachment and kept as a text file the conversation's
 //   agent reads without asking (attachments.commitText).
 // pull-request-base-branches: lists the remote branches a task's PR can target.
-export const CORE_FEATURES = ['mobile', 'source-auto-investigation', 'chat-references', 'conversation-references', 'agent-profiles', 'plugins', 'plugin-recommendations', 'chat-options', 'chat-images', 'task-start', 'worktrees', 'conversation-branches', 'conversation-commit-push', 'find-file', 'conversation-projects', 'browser', 'browser-collaboration', 'browser-file-transfers', 'keep-awake', 'terminal-commands', 'bookmarks', 'browser-history', 'usage-limit', 'agent-stats', 'conversation-stats', 'prompt-suggestions', 'environment', 'conversation-pin', 'schedules', 'chat-commands', 'file-mentions', 'plan-modes', 'agent-terminals', 'schedule-images', 'dashboard', 'task-conversation-summaries', 'routines', 'ports', 'conversation-fork', 'conversation-configuration', 'conversation-commit-steps', 'conversation-worktrees', 'conversation-start-branch', 'wire-log', 'file-preview', 'deferred-conversation-start', 'agent-cli-installation', 'agent-cli-maintenance', 'task-launch-options', 'git-management', 'git-commit-branches', 'task-handoff', 'handoff-model', 'handoff-mode', 'task-launch', 'discussions', 'discussion-members', 'discussion-projects', 'discussion-topics', 'discussion-requirements', 'discussion-model-providers', 'task-cancel', 'task-redo-in-place', 'conversation-archive', 'discussion-archive', 'translate', 'commit-message', 'squads', 'squad-leader-planning', 'conversation-todos', 'knowledge-base', 'knowledge-base-kind', 'skills-library', 'skills-search', 'skills-activation', 'mcp-servers', 'source-investigate', 'source-investigate-images', 'source-issue-preview', 'todo-overview', 'conversation-helper', 'small-model-stats', 'terminal-color-prompt', 'git-commit-actions', 'file-editor', 'project-config', 'project-config-edit', 'model-providers', 'git-update', 'git-push-target', 'git-cherry-pick', 'git-amend', 'git-force-push', 'task-auto-run', 'session-import', 'agent-accounts', 'usage-analytics', 'task-references', 'release-idle-chats', 'project-star', 'git-favorites', 'project-files', 'git-projects', 'git-branch-browser', 'git-rebase', 'direct-agent-calls', 'discussion-formats', 'discussion-format-suggest', 'agent-call-resume', 'delegation-worktree', 'pasted-text', 'task-conversation-rows', 'inline-visualizations', 'archived-worktrees', 'model-provider-models', 'skills-local', 'model-provider-headers', 'provider-model-images', 'source-comments-v1', 'pull-requests', 'pull-request-base-branches', 'browser-sites', 'chat-command-pins', 'agent-profile-delegation-mode', 'attachment-sweep', 'mobile-handoff', 'channels', 'chat-catalog-problem', 'channel-readiness', 'channel-tasks', 'source-attachments'] as const
+export const CORE_FEATURES = ['mobile', 'source-auto-investigation', 'chat-references', 'conversation-references', 'agent-profiles', 'plugins', 'plugin-recommendations', 'chat-options', 'chat-images', 'task-start', 'worktrees', 'conversation-branches', 'conversation-commit-push', 'find-file', 'conversation-projects', 'browser', 'browser-collaboration', 'browser-file-transfers', 'keep-awake', 'terminal-commands', 'bookmarks', 'browser-history', 'usage-limit', 'agent-stats', 'conversation-stats', 'prompt-suggestions', 'environment', 'conversation-pin', 'schedules', 'chat-commands', 'file-mentions', 'plan-modes', 'agent-terminals', 'schedule-images', 'dashboard', 'task-conversation-summaries', 'routines', 'ports', 'conversation-fork', 'conversation-configuration', 'conversation-commit-steps', 'conversation-worktrees', 'conversation-start-branch', 'wire-log', 'file-preview', 'deferred-conversation-start', 'agent-cli-installation', 'agent-cli-maintenance', 'task-launch-options', 'git-management', 'git-commit-branches', 'task-handoff', 'handoff-model', 'handoff-mode', 'task-launch', 'discussions', 'discussion-members', 'discussion-projects', 'discussion-topics', 'discussion-requirements', 'discussion-model-providers', 'task-cancel', 'task-redo-in-place', 'conversation-archive', 'discussion-archive', 'translate', 'commit-message', 'squads', 'squad-leader-planning', 'conversation-todos', 'knowledge-base', 'knowledge-base-kind', 'skills-library', 'skills-search', 'skills-activation', 'mcp-servers', 'source-investigate', 'source-investigate-images', 'source-issue-preview', 'todo-overview', 'conversation-helper', 'small-model-stats', 'terminal-color-prompt', 'git-commit-actions', 'file-editor', 'project-config', 'project-config-edit', 'model-providers', 'git-update', 'git-push-target', 'git-cherry-pick', 'git-amend', 'git-force-push', 'task-auto-run', 'session-import', 'agent-accounts', 'usage-analytics', 'task-references', 'release-idle-chats', 'project-star', 'git-favorites', 'project-files', 'git-projects', 'git-branch-browser', 'git-rebase', 'direct-agent-calls', 'discussion-formats', 'discussion-format-suggest', 'agent-call-resume', 'delegation-worktree', 'pasted-text', 'task-conversation-rows', 'inline-visualizations', 'archived-worktrees', 'model-provider-models', 'skills-local', 'model-provider-headers', 'provider-model-images', 'source-comments-v1', 'pull-requests', 'pull-request-base-branches', 'browser-sites', 'chat-command-pins', 'agent-profile-delegation-mode', 'attachment-sweep', 'mobile-handoff', 'channels', 'chat-catalog-problem', 'channel-readiness', 'channel-tasks', 'source-attachments', 'requirements'] as const
 // session-import: core lists the sessions agents ran outside Antumi and imports them as conversations (sessionImports.*).
 // agent-accounts: Claude and Codex sign in to several accounts, one active each, and a usage limit
 // moves the agent to the next with quota (accounts.*); usage readings name their account.
@@ -179,6 +181,14 @@ const BrowserConversationRef = z.object({ conversationId: z.string().uuid() })
 const BrowserTabRef = BrowserConversationRef.extend({ tabId: BrowserTabId })
 
 export const rpcMethods = {
+  'requirements.list': { params: z.object({}), result: z.array(Requirement) },
+  'requirements.get': { params: RequirementRef, result: Requirement },
+  'requirements.import': { params: IssueRef, result: Requirement },
+  'requirements.revise': { params: RequirementEdit.extend({ fields: RequirementFields, refreshSource: z.boolean().optional() }), result: Requirement },
+  'requirements.solution': { params: RequirementEdit.extend({ solutionId: z.string().uuid().optional(), markdown: z.string().trim().max(50_000) }), result: Requirement },
+  'requirements.review': { params: RequirementEdit.extend({ solutionId: z.string().uuid(), action: z.enum(['submit', 'changes', 'accepted']), confirmer: z.string().trim().min(1).max(10_000).optional(), feedback: z.string().trim().max(10_000).optional() }), result: Requirement },
+  'requirements.handoff': { params: RequirementEdit.extend({ solutionId: z.string().uuid() }), result: Task },
+  'requirements.context': { params: RequirementEdit, result: z.object({ text: z.string(), projectPaths: z.array(z.string()), images: z.array(ChatImage) }) },
   'plugins.recommended': { params: z.object({}), result: z.array(RecommendedPlugin) },
   'plugins.installRecommended': { params: z.object({ id: PluginId }), result: PluginInfo },
   'plugins.list': { params: z.object({}), result: z.array(PluginInfo) },
@@ -903,7 +913,7 @@ export const rpcMethods = {
   // frequently tens of megabytes and often never opened. Base64 because the client may be on
   // another machine. Needs source-attachments.
   // expectedSize: what the snapshot said the file weighs, for the progress percentage when the source cannot report a total.
-  'sources.attachment': { params: IssueRef.extend({ attachmentId: z.string().min(1).max(200), expectedSize: z.number().int().nonnegative().nullable().optional() }), result: SourceAttachmentData },
+  'sources.attachment': { params: IssueRef.extend({ attachmentId: z.string().min(1).max(200), expectedSize: z.number().int().nonnegative().nullable().optional(), binding: z.string().max(64).optional() }), result: SourceAttachmentData },
   // Turns an issue into a pending task that carries the issue's text as a snapshot.
   'sources.import': { params: IssueRef.extend({ agent: AgentKind.nullable().optional() }), result: Task },
   // Opens a conversation to look into an issue, handed the issue's text the way a handoff is, in
@@ -969,6 +979,7 @@ export const rpcMethods = {
 } as const
 
 export const rpcNotifications = {
+  'requirements.changed': z.object({ requirement: Requirement }),
   'usage.analyticsChanged': z.object({}),
   // Every pull request of the task (pullRequests.list) after one is opened, refreshed or forgotten.
   'pullRequests.changed': z.object({ taskId: z.string(), links: z.array(PullRequestLink) }),
