@@ -8,7 +8,7 @@ type Progress = { read: number; total: number | null }
 
 // Files the issue carries. The snapshot names them; the bytes are read from the source only when
 // asked, because they run to tens of megabytes and are often never opened.
-export function SourceAttachments({ source, attachments }: { source: TaskSource; attachments: readonly SourceAttachmentShape[] }): ReactNode {
+export function SourceAttachments({ source, attachments, binding }: { source: TaskSource; binding?: string; attachments: readonly SourceAttachmentShape[] }): ReactNode {
   useLocale((state) => state.locale)
   const rpc = useCore((state) => state.rpc)
   const [busy, setBusy] = useState<string | null>(null)
@@ -38,7 +38,7 @@ export function SourceAttachments({ source, attachments }: { source: TaskSource;
     setProblem(null)
     setSaved(null)
     try {
-      const data = await perform((rpc) => rpc.call('sources.attachment', { provider: source.provider, instance: source.instance, key: source.key, attachmentId: file.id, expectedSize: file.size }))
+      const data = await perform((rpc) => rpc.call('sources.attachment', { provider: source.provider, instance: source.instance, key: source.key, attachmentId: file.id, expectedSize: file.size, ...(binding ? { binding } : {}) }))
       if (!data) { setProblem(t('SourceAttachments.notConnected')); return }
       const answer = await window.antumi?.saveDownload?.({ name: data.name, base64: data.base64 })
       if (answer && typeof answer === 'object' && 'ok' in answer) {

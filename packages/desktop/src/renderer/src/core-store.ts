@@ -106,6 +106,7 @@ export type CoreState = {
   selectedConversationId: string | null
   // The page a new conversation starts from while chats are the default (see ConversationDraft), and
   // whether it starts one agent or a group chat.
+  conversationDraftAnalysis?: boolean
   conversationDraft: boolean
   conversationDraftMode: DraftMode
   // What the page carries over when it switches between one agent and a group: what was written,
@@ -866,8 +867,8 @@ export type DraftIssue = { provider: string; instance: string; key: string; titl
 
 // `projects`: what the page starts with, as from a project's group; without, it starts with none.
 // `issue`: the inbox issue the conversation is opened to look into.
-export function openConversationDraft(projects?: readonly string[], issue: DraftIssue | null = null, from: CoreState['conversationDraftFrom'] = null): void {
-  useCore.setState({ selectedConversationId: null, section: 'conversations', settingsOpen: false, worktreesOpen: false, routinesOpen: false, overviewOpen: false, inboxOpen: false, conversationDraft: true, conversationDraftMode: 'single', conversationDraftCarry: null, conversationDraftProjects: projects ? { paths: [...projects] } : null, conversationDraftIssue: issue, conversationDraftFrom: from, discussionDraftFrom: null, draftProfileId: null })
+export function openConversationDraft(projects?: readonly string[], issue: DraftIssue | null = null, from: CoreState['conversationDraftFrom'] = null, analysis = false): void {
+  useCore.setState({ selectedConversationId: null, section: 'conversations', settingsOpen: false, worktreesOpen: false, routinesOpen: false, overviewOpen: false, inboxOpen: false, conversationDraft: true, conversationDraftMode: 'single', conversationDraftAnalysis: analysis, conversationDraftCarry: null, conversationDraftProjects: projects ? { paths: [...projects] } : null, conversationDraftIssue: issue, conversationDraftFrom: from, discussionDraftFrom: null, draftProfileId: null })
 }
 
 export type DraftMode = 'single' | 'group'
@@ -910,7 +911,7 @@ export function openDiscussionDraftWith(from: Discussion, text: string, format?:
 
 // The new page, set to a group chat. from: a group whose members, projects and options it starts with.
 export function openDiscussionDraft(from?: Discussion): void {
-  useCore.setState({ selectedConversationId: null, selectedDiscussionId: null, section: 'conversations', conversationDraft: true, conversationDraftMode: 'group', conversationDraftCarry: null, conversationDraftIssue: null, conversationDraftFrom: null, discussionDraftFrom: from ? { discussion: from } : null, draftProfileId: null, ...PAGES_CLOSED })
+  useCore.setState({ selectedConversationId: null, selectedDiscussionId: null, section: 'conversations', conversationDraft: true, conversationDraftMode: 'group', conversationDraftAnalysis: false, conversationDraftCarry: null, conversationDraftIssue: null, conversationDraftFrom: null, discussionDraftFrom: from ? { discussion: from } : null, draftProfileId: null, ...PAGES_CLOSED })
 }
 
 // Whether core runs group chats (discussions.*).

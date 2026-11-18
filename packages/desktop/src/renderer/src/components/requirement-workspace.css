@@ -1,0 +1,13 @@
+.requirement-workspace { width: min(var(--page-wide), calc(100vw - 32px)); height: calc(100vh - 32px); max-height: calc(100vh - 32px); padding: 0; overflow: hidden; }
+.requirement-workspace[open] { display: flex; flex-direction: column; }
+.requirement-workspace > header { flex-shrink: 0; padding: 16px; }
+.requirement-body { min-height: 0; flex: 1; overflow: auto; padding: 16px; }
+.requirement-list { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.requirement-list [aria-current="true"] { background: var(--accent-bg); color: var(--accent); }
+.requirement-editor { max-width: var(--page-form); margin: auto; display: flex; flex-direction: column; gap: 16px; }
+.requirement-editor fieldset { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; }
+.requirement-editor label { display: flex; flex-direction: column; gap: 8px; }
+.requirement-editor textarea { resize: vertical; }
+.requirement-editor .toolbar { flex-wrap: wrap; }
+.requirement-editor .cm-editor { min-height: 160px; border: 1px solid var(--border); border-radius: var(--radius); }
+.requirement-review { display: flex; flex-direction: column; gap: 16px; }
