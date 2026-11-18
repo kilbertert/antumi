@@ -1,3 +1,4 @@
+import { requirementBrief, type RequirementService } from './requirement-service'
 import { homedir } from 'node:os'
 import type { AgentProfileService } from './agent-profile-service'
 import type { AgentCliMaintenance } from './agent-cli-maintenance'
@@ -5,7 +6,7 @@ import { suggestForProject } from './project-config-suggest'
 import { EMPTY_BASELINE, type SmallModelStore } from './small-model-store'
 import { GitService } from './git-service'
 import type { GitFavoriteStore } from './git-favorite-store'
-import { SourceDeliveryInfo, agentDescriptor, CORE_FEATURES, PROTOCOL_VERSION, type ChatItem, type PullRequestLink } from '@antumi/protocol'
+import { SourceDeliveryInfo, untrustedSource, agentDescriptor, CORE_FEATURES, PROTOCOL_VERSION, type ChatItem, type PullRequestLink } from '@antumi/protocol'
 import packageJson from '../package.json' with { type: 'json' }
 import type { AgentRunStore } from './agent-run-store'
 import type { ChatTurnStore } from './chat-turn-store'
@@ -121,13 +122,18 @@ export function createRpcHandlers(
   pullRequestStore?: { store: PullRequestStore; changed: (taskId: string, links: PullRequestLink[]) => void; ready?: (service: PullRequestService) => void },
   browserSites?: BrowserSiteStore,
   mobile?: MobileService,
-  channels?: ChannelService
+  channels?: ChannelService,
+  requirements?: RequirementService
 ): RpcHandlers {
+  const requirementService = () => {
+    if (!requirements) throw new Rejection('requirements-unavailable')
+    return requirements
+  }
   const mobileService = (): MobileService => {
     if (!mobile) throw new Rejection('mobile-unavailable')
     return mobile
   }
-  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
+  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (feature !== 'requirements' || Boolean(requirements)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
   const channelService = (): ChannelService => {
     if (!channels) throw new Rejection('channels-unavailable')
     return channels
@@ -482,6 +488,21 @@ export function createRpcHandlers(
     'system.installAgentCli': ({ agent }) => cliInstaller.install(agent),
     'tasks.list': ({ status }) => service.list(status),
     'tasks.get': ({ id }) => service.get(id),
+    'requirements.list': () => requirementService().list(),
+    'requirements.get': ({ id }) => requirementService().get(id),
+    'requirements.import': (params) => requirementService().import(params),
+    'requirements.revise': (params) => requirementService().revise(params),
+    'requirements.solution': (params) => requirementService().solution(params),
+    'requirements.review': (params) => requirementService().review(params),
+    'requirements.handoff': (params) => requirementService().handoff(params),
+    'requirements.context': ({ id, version }) => {
+      const requirement = requirementService().get(id)
+      if (requirement.version !== version) throw new Rejection('requirement-conflict')
+      const revision = requirement.revisions.at(-1)!
+      const text = `请分析以下需求，明确缺失信息、可复用能力、推荐与备选方案、数据/接口/权限影响、风险与验收计划。只分析，不修改项目文件。\n\n${requirementBrief(requirement, revision)}\n\n${untrustedSource(revision.source, revision.snapshot, [], 50_000)}`
+      if (text.length > 100_000) throw new Rejection('requirement-brief-too-long', '需求超过会话长度上限，请精简结构化字段')
+      return { text, projectPaths: revision.fields.repos, images: revision.snapshot.images }
+    },
     'tasks.create': (params, connection) => {
       // A squad is set up on the computer, with the agent profiles it runs.
       if (connection.mobile && params.squadId) throw new Rejection('mobile-not-allowed', 'squads are set up on the computer')
@@ -885,7 +906,10 @@ export function createRpcHandlers(
     'sources.refresh': ({ provider, instance }) => sources.refresh(provider, instance),
     'sources.issue': ({ provider, instance, key, images }) => sources.issue(provider, instance, key, images),
     'sources.issueComments': ({ provider, instance, key, options }) => sources.issueComments(provider, instance, key, options),
-    'sources.attachment': ({ provider, instance, key, attachmentId, expectedSize }) => sources.attachment(provider, instance, key, attachmentId, expectedSize ?? null),
+    'sources.attachment': ({ provider, instance, key, attachmentId, expectedSize, binding }) => {
+      if (binding && sources.requirementBinding(provider, instance) !== binding) throw new Rejection('requirement-source-changed', '禅道站点已更换，不能从新站点下载旧需求附件')
+      return sources.attachment(provider, instance, key, attachmentId, expectedSize ?? null)
+    },
     'sources.import': ({ provider, instance, key, agent }) => sources.import(provider, instance, key, agent ?? null),
     'sources.investigate': ({ provider, instance, key, ...options }) => sources.investigate(provider, instance, key, options),
     'sources.retryInvestigation': ({ id }) => sources.retryInvestigation(id),

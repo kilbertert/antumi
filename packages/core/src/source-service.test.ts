@@ -170,6 +170,20 @@ describe('SourceService', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('stores complete ZenTao snapshots without creating development tasks', async () => {
+    const zentao = new SourceService([{ ...demo, id: 'zentao' }], config, credentials, new LoginFlows(), tasks, store, attachments,
+      { inboxChanged: () => {}, listChanged: () => {}, attachmentProgress: () => {} }, { DEMO_TOKEN: 'good' })
+    await zentao.saveSettings({ provider: 'zentao', instance: 'default', settings: { site: 'https://demo.test' } })
+    const fetched = await zentao.requirementSnapshot('zentao', 'default', 'd-3')
+    expect(fetched.source.key).toBe('D-3')
+    expect(fetched.snapshot.attachments).toEqual([{ id: 'f-1', name: 'build.rar', size: 4 }])
+    expect(fetched.snapshot.images).toHaveLength(1)
+    expect(await attachments.info(fetched.snapshot.images[0]!.id)).not.toBeNull()
+    expect(store.list()).toEqual([])
+    zentao.stop()
+    await expect(service.requirementSnapshot('demo', 'default', 'd-3')).rejects.toMatchObject({ reason: 'requirement-source-unsupported' })
+  })
+
   async function signIn(token = 'good'): Promise<void> {
     const flowId = service.login(client, 'demo', 'default', randomUUID())
     const prompt = await until(() => {

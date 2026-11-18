@@ -1,3 +1,5 @@
+import { RequirementStore } from './requirement-store'
+import { RequirementService } from './requirement-service'
 import { investigationPermission, investigationRef, SourceInvestigationService } from './source-investigation-service'
 import { SourceInvestigationStore } from './source-investigation-store'
 import { Rejection } from './rejection'
@@ -736,6 +738,9 @@ sourceInvestigations = new SourceInvestigationService(new SourceInvestigationSto
 sources.automatic = sourceInvestigations
 conversations.setAutomaticInvestigation(sourceInvestigations)
 
+const requirementStore = new RequirementStore(paths.database)
+const requirements = new RequirementService(requirementStore, sources, service, (requirement) => server?.broadcast('requirements.changed', { requirement }))
+
 const token = randomBytes(32).toString('hex')
 server = await startRpcServer({
   port: Number(process.env.ANTUMI_PORT ?? 0),
@@ -745,7 +750,7 @@ server = await startRpcServer({
     uploads: new AttachmentUploads(attachments),
     sweeper: attachmentSweeper
   }, terminals, worktrees, browser, awake, terminalCommands, limits, runs, turns, chatSettings, environment, schedules, chatCommands, routines, discussions, wire, () => { server?.broadcast('git.changed', {}); profiles.tick() }, squads, todos, plugins, skills, mcpServers, smallModels, projectConfigs, modelProviders, sessionImports, accounts, cliMaintenance, analytics, automation, new ProjectStar(sources), profiles, bookmarks, browserHistory, sourceUpdates,
-    { store: pullRequestStore, changed: (taskId, links) => server?.broadcast('pullRequests.changed', { taskId, links }), ready: (service) => { pullRequests.current = service } }, browserSites, mobile, channels)
+    { store: pullRequestStore, changed: (taskId, links) => server?.broadcast('pullRequests.changed', { taskId, links }), ready: (service) => { pullRequests.current = service } }, browserSites, mobile, channels, requirements)
 })
 await writeCoreEndpoint({ port: server.port, token, pid: process.pid, protocolVersion: PROTOCOL_VERSION, version: packageJson.version })
 mobile.seed(conversations.list(true, true, true))
@@ -812,6 +817,7 @@ async function shutdown(): Promise<void> {
   await removeCoreEndpoint(process.pid)
   await sourceUpdates?.close()
   sourceUpdateStore.close()
+  requirementStore.close()
   store.close()
   conversationsStore.close()
   runs.close()
