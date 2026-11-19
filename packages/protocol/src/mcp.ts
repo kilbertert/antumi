@@ -41,6 +41,16 @@ export const McpTransportInput = z.discriminatedUnion('type', [
 ])
 export type McpTransportInput = z.infer<typeof McpTransportInput>
 
+// Retained secrets belong to one endpoint or executable invocation, not its display name.
+export function sameMcpTarget(left: McpTransport | McpTransportInput, right: McpTransport | McpTransportInput): boolean {
+  if (left.type === 'http' && right.type === 'http') {
+    try { return new URL(left.url).href === new URL(right.url).href } catch { return false }
+  }
+  return left.type === 'stdio' && right.type === 'stdio' && left.command === right.command
+    && (left.cwd || null) === (right.cwd || null) && left.args.length === right.args.length
+    && left.args.every((arg, index) => arg === right.args[index])
+}
+
 // previousName: the server this edit renames, its secrets carried over; null adds one.
 export const McpServerInput = z.object({
   name: McpServerName,

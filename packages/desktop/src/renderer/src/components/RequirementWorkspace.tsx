@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { solutionBlocker, type Requirement, type RequirementFields, type RequirementEvidence, type RequirementEvidenceFile, type ProjectFileMatch } from '@antumi/protocol'
-import { openConversationDraft, perform, selectTask, useCore } from '../core-store'
+import { openConversationDraft, perform, selectTask, setSettingsOpen, useCore } from '../core-store'
 import { useOccludesBrowser } from '../browser-occlusion'
 import { askConfirm } from '../confirm-dialog'
 import { keepRequirementDraft, requirementDraft } from '../requirement-drafts'
@@ -12,6 +12,7 @@ import { ProjectPicker } from './ProjectPicker'
 import { MarkdownEditor } from './MarkdownEditor'
 import { RequirementPrototype } from './RequirementPrototype'
 import { RequirementProjectFields } from './RequirementProjectFields'
+import { RequirementConnections } from './RequirementConnections'
 import { SourceAttachments } from './SourceAttachments'
 import { ImageStrip } from './ImageStrip'
 import { ImageViewer } from './ImageViewer'
@@ -69,6 +70,7 @@ export function RequirementWorkspace({ initialId, onClose }: { initialId: string
   return <dialog ref={dialog} className="modal requirement-workspace" aria-labelledby="requirement-title" onCancel={(event) => { event.preventDefault(); void close() }}>
     <header className="detail-header"><h2 id="requirement-title">{t('Requirements.title')}</h2><button type="button" className="tool-button" aria-label={t('BackdropPicker.close')} onClick={() => void close()}><CloseIcon /></button></header>
     <div className="requirement-body">
+      <RequirementConnections onSettings={(section) => { onClose(); setSettingsOpen(true, section) }} />
       <nav aria-label={t('Requirements.list')} className="requirement-list">
         {items.length === 0 && <p className="muted">{t('Requirements.empty')}</p>}
         {items.map((each) => <button type="button" className="button" aria-current={each.id === selected} key={each.id} onClick={() => void load(each.id)}>{each.title}</button>)}

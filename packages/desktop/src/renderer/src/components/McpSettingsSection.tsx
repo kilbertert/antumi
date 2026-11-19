@@ -1,6 +1,6 @@
 import { localized, t, tr } from '../i18n'
 import { useEffect, useId, useState, type FormEvent } from 'react'
-import { AGENT_KINDS, agentDescriptor, McpServerName, type AgentKind, type McpImportCandidate, type McpProbe, type McpServer, type McpServerInput } from '@antumi/protocol'
+import { AGENT_KINDS, agentDescriptor, McpServerName, sameMcpTarget, type AgentKind, type McpImportCandidate, type McpProbe, type McpServer, type McpServerInput } from '@antumi/protocol'
 import { perform, useCore } from '../core-store'
 import { agentLabel } from '../labels'
 import { Segmented, SettingsGroup, Toggle } from './SettingsControls'
@@ -103,7 +103,8 @@ function ServerForm({ initial, onDone }: { initial: Draft; onDone: (saved: strin
   const set = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }))
   const setSecret = (index: number, patch: Partial<Secret>) => set({ secrets: draft.secrets.map((secret, at) => (at === index ? { ...secret, ...patch } : secret)) })
   const badName = draft.name.trim().length > 0 && !McpServerName.safeParse(draft.name.trim()).success
-  const ready = McpServerName.safeParse(draft.name.trim()).success && (draft.type === 'stdio' ? draft.command.trim() : draft.url.trim()) && draft.secrets.every((secret) => !secret.key.trim() || secret.stored || secret.value)
+  const targetChanged = initial.previousName !== null && !sameMcpTarget(inputOf(initial).transport, inputOf(draft).transport)
+  const ready = McpServerName.safeParse(draft.name.trim()).success && (draft.type === 'stdio' ? draft.command.trim() : draft.url.trim()) && draft.secrets.every((secret) => !secret.key.trim() || (secret.stored && !targetChanged) || secret.value)
 
   const save = async (event?: FormEvent) => {
     event?.preventDefault()
@@ -173,10 +174,11 @@ function ServerForm({ initial, onDone }: { initial: Draft; onDone: (saved: strin
       )}
       <div className="chat-command-field">
         <span>{what}</span>
+        {targetChanged && draft.secrets.some((secret) => secret.stored) && <p role="status" className="settings-note">{t('McpSettingsSection.targetChanged')}</p>}
         {draft.secrets.map((secret, index) => (
           <span key={index} className="mcp-secret">
             <input className="input mono" value={secret.key} disabled={secret.stored} onChange={(event) => setSecret(index, { key: event.target.value })} placeholder={draft.type === 'stdio' ? 'GITHUB_TOKEN' : 'Authorization'} spellCheck={false} aria-label={t('McpSettingsSection.name', { what: what })} />
-            <input className="input mono" type="password" autoComplete="new-password" value={secret.value} onChange={(event) => setSecret(index, { value: event.target.value })} placeholder={secret.stored ? t('McpSettingsSection.alreadySetLeaveEmptyToKeep') : t('McpSettingsSection.value')} aria-label={t('McpSettingsSection.valueFor', { value1: secret.key || what })} />
+            <input className="input mono" type="password" autoComplete="new-password" value={secret.value} onChange={(event) => setSecret(index, { value: event.target.value })} placeholder={secret.stored && !targetChanged ? t('McpSettingsSection.alreadySetLeaveEmptyToKeep') : t('McpSettingsSection.value')} aria-label={t('McpSettingsSection.valueFor', { value1: secret.key || what })} />
             <button type="button" className="button ghost" onClick={() => set({ secrets: draft.secrets.filter((_, at) => at !== index) })}>{t('ChatQuoteCards.remove')}</button>
           </span>
         ))}

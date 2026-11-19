@@ -602,7 +602,15 @@ Agent 可用之后、任务来源之前是「接着聊」一步：从零用一�
 
 ### 用户的 MCP 服务器
 
-设置 → 任务 → MCP 维护一份全局的 MCP 服务器列表（`mcp-servers.ts`）：本地命令（stdio）或远程地址（streamable HTTP，远程只接受 https），每个选好交给哪些 Agent，可以单独停用。设置存在 `mcp-servers.json`；环境变量和请求头的值都当密钥，存进 `credentials.json`（`mcp/<名字>`），客户端只看得到键名。名字 `antumi` 留给 Antumi 自己的服务器（工具名靠它识别）。
+设置 → 任务 → MCP 维护一份全局的 MCP 服务器列表（`mcp-servers.ts`）：本地命令（stdio）或远程地址（streamable HTTP，远程只接受 https），每个选好交给哪些 Agent，可以单独停用。设置存在 `mcp-servers.json`；环境变量和请求头的值都当密钥，存进 `credentials.json`，客户端只看得到键名。名字 `antumi` 留给 Antumi 自己的服务器（工具名靠它识别）。
+
+保留凭据须连接目标不变：HTTP 比较规范化后的完整 URL，stdio 比较命令、参数和工作目录；
+改变目标须重新填写要交给新目标的值，重命名或修改共享 Agent 不需要重填。
+这项本地规则沿用 MCP 规范中凭据应限定接收方的原则。参见 [MCP 安全说明](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices#token-passthrough)。
+保存时先写独立凭据记录
+（`mcp/<随机引用>`），再原子切换设置中的 `credentialRef`，最后删除旧记录；设置写失败
+仍保留旧目标和旧凭据。旧的 `mcp/<名字>` 记录继续可读，编辑时迁移。客户端 RPC 不变；
+回退旧 Core 时，它不能读取新引用形式的 MCP 凭据，须重新填写；模型服务商和来源凭据不受影响。
 
 和技能库一样，**每次启动时注入，不改 Agent 自己的配置**：descriptor 的 `capabilities.userMcp` 说明能不能接，adapter 用交 Antumi MCP 的同一条路交出去（`AgentLaunch.userMcp`）——Claude Code 合进 `--mcp-config`（仍不加 `--strict-mcp-config`，用户自己配的照常加载），Codex 是整条 `-c mcp_servers.<名字>={...}`（同名时盖过 config.toml 里的那条），Cursor 和 OpenCode 进 ACP `session/new` 的 `mcpServers`，Pi 由 Antumi 的扩展 `registerMcpServer`（用户自己 `~/.pi/agent/mcp.json` 里的照常加载）。有密钥的服务器交出去的是 Antumi 的启动器（`mcp-main --run <名字>`，`user-mcp-launch.ts`）：它启动时才从 Antumi 的文件读出密钥，命令带上环境变量直接接管 stdio，远程地址则由它在 stdio 和 HTTP 之间转发（`mcp-http.ts`），所以密钥不进 Agent 的命令行、配置和 Antumi 的日志；没有密钥的远程地址直接交给 Agent。改动从下次启动 Agent 起生效。
 
@@ -838,6 +846,9 @@ pnpm dist:win     # 打包 Windows 安装包
 支持 `requirements` 的 core 在禅道收件箱提供「进入需求」；「需求与方案」
 可重新打开已导入事项。站点更换后同编号形成独立需求，旧记录和附件
 不能从新站点刷新或下载。导入保存原文、图片和附件引用，不创建开发任务。
+「外部连接与凭据」显示当前 Core 的禅道凭据、模型 Key 和 MCP 启用情况，并跳转
+到现有设置页，保留未保存的需求草稿。状态仅描述配置，不代表连通性验证。Stitch、
+墨刀等工具通过提供方的 MCP 配置交给所选 Agent，不增加独立凭据库或自动原型回填。
 每次保存或重新拉取都形成一个需求修订版，历史保持只读；业务项目和目标版本
 可关联目录项，关联代码项目仍是独立的仓库路径列表。
 
