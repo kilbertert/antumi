@@ -73,3 +73,4 @@ export * from './chat-quotes'
 export * from './delegation-delivery'
 
 export * from './requirement'
+export * from './requirement-project'
