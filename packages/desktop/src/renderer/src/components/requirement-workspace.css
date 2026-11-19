@@ -24,3 +24,5 @@
 .requirement-catalog-body .requirement-evidence-search { flex-wrap: wrap; }
 .requirement-catalog-body .input { flex: 1; min-width: 0; }
 .requirement-iteration-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.requirement-connections { max-width: var(--page-form); margin: 0 auto 16px; }
+.requirement-connections .muted { line-height: 1.5; }

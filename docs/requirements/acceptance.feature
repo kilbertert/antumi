@@ -21,6 +21,20 @@ Feature: Turn a ZenTao requirement into an accepted development brief
       When one window saves a new revision
       Then the other window cannot overwrite it with its older revision
 
+  Rule: External connections reuse Antumi configuration
+    Scenario: Find and configure connections from the requirement workspace
+      Given a Core with source, model provider and MCP settings
+      When I expand external connections in the requirement workspace
+      Then I see configured credentials and enabled tools without secret values
+      And I can open the existing configuration page without discarding my requirement draft
+      And configuration alone does not send an Agent message or invoke an external tool
+    Scenario: Keep MCP credentials bound to their destination
+      Given a saved MCP server with credentials
+      When I change its remote URL or local command, arguments or working directory
+      Then I must re-enter every credential I want to use at the new destination
+      And a rejected save leaves the previous server and credential unchanged
+      And a display-name or Agent-sharing change can keep credentials for the same destination
+
   Rule: Requirements target a business project iteration
     Scenario: Create and select a project iteration
       Given I can manage the business project directory in this Core

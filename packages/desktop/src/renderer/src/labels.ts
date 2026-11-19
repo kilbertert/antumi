@@ -222,6 +222,7 @@ const REASON_TEXT: Record<string, string> = localized(() => ({
   'mcp-unknown': t('labels.mcpServerNotFound'),
   'mcp-name-taken': t('labels.anMcpServerWithThisNameAlreadyExists'),
   'mcp-duplicate-key': t('labels.theSameKeyWasEnteredTwice'),
+  'mcp-secret-target-changed': t('McpSettingsSection.targetChanged'),
   'mcp-relative-cwd': t('labels.workingDirectoryMustBeAnAbsolutePath'),
   'mcp-insecure-url': t('labels.remoteServersRequireHttpsHttpIsAllowedOnly'),
   'mcp-import-gone': t('labels.thisServerIsNoLongerInTheOriginal'),

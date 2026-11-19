@@ -92,6 +92,24 @@ provider, synthetic issue and temporary repository. Never read real credentials.
   close with confirmation and switch revisions; check dark/light and narrow
   layouts. Confirm repo paths remain distinct from business project IDs.
 
+- R13 / connections: with synthetic source credential status, model provider and
+  MCP configuration, expand external connections in the actual requirement
+  workspace. Expect configured/enabled status, no secret values, and links to
+  the existing source, model provider and MCP settings. Leave an unsaved
+  requirement edit, open settings, return and reopen the requirement; expect the
+  draft restored. No automatic tool call or Agent message. Check missing source
+  plugin, no configured providers, disabled MCP and older Core capabilities.
+  Save a fake MCP credential, change its HTTP URL or stdio command/arguments/cwd
+  while leaving the credential blank; expect rejection and old configuration
+  unchanged after reload. Re-enter the credential and expect success. Rename or
+  change Agent sharing without changing the destination; expect credentials
+  retained. Inject a settings-file write failure after the new credential write;
+  expect the old target/key to remain usable after reload. Existing name-bound
+  MCP credentials must still read and migrate on save. No real credentials or
+  network calls in these fixtures. Older desktop clients keep the same RPC;
+  downgrading Core after editing MCP credentials requires re-entering those
+  credentials because older Core cannot read the new private reference.
+
 Store/service tests and integrated RPC tests execute R1-R4 and protocol gates.
 Evidence service tests execute R8 and R11 with temporary repositories, knowledge
 folders and files.
