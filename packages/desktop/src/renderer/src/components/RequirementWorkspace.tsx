@@ -11,6 +11,7 @@ import { ChatPicker } from './ChatPicker'
 import { ProjectPicker } from './ProjectPicker'
 import { MarkdownEditor } from './MarkdownEditor'
 import { RequirementPrototype } from './RequirementPrototype'
+import { RequirementProjectFields } from './RequirementProjectFields'
 import { SourceAttachments } from './SourceAttachments'
 import { ImageStrip } from './ImageStrip'
 import { ImageViewer } from './ImageViewer'
@@ -18,7 +19,7 @@ import { CloseIcon } from './icons'
 import { SearchIcon } from './icons'
 import './requirement-workspace.css'
 
-const TEXT_FIELDS = ['owner', 'reviewer', 'project', 'release', 'goal', 'users', 'scope', 'nonGoals', 'acceptance', 'constraints', 'questions'] as const
+const TEXT_FIELDS = ['owner', 'reviewer', 'goal', 'users', 'scope', 'nonGoals', 'acceptance', 'constraints', 'questions'] as const
 
 export function RequirementWorkspace({ initialId, onClose }: { initialId: string | null; onClose: () => void }) {
   useOccludesBrowser()
@@ -81,6 +82,7 @@ export function RequirementWorkspace({ initialId, onClose }: { initialId: string
 
 function RequirementEditor({ requirement, evidenceSupported, knowledgeEvidenceSupported, onSave, onDirty, onTask }: { requirement: Requirement; evidenceSupported: boolean; knowledgeEvidenceSupported: boolean; onSave: (next: Requirement) => void; onDirty: (dirty: boolean) => void; onTask: () => void }) {
   const prototypeSupported = useCore((state) => state.rpc?.features.includes('requirement-prototypes') ?? false)
+  const projectIterationsSupported = useCore((state) => state.rpc?.features.includes('requirement-project-iterations') ?? false)
   const latest = requirement.revisions.at(-1)!
   const [revisionNumber, setRevisionNumber] = useState(latest.number)
   const revision = requirement.revisions.find((each) => each.number === revisionNumber)!
@@ -208,6 +210,12 @@ function RequirementEditor({ requirement, evidenceSupported, knowledgeEvidenceSu
     {viewing !== null && revision.snapshot.images.length > 0 && <ImageViewer images={revision.snapshot.images} index={Math.min(viewing, revision.snapshot.images.length - 1)} onIndex={setViewing} onClose={() => setViewing(null)} />}
     <fieldset disabled={historical || busy || solutionDirty || Boolean(feedback || confirmer)}>
       {TEXT_FIELDS.map((field) => <label key={field}>{t(`Requirements.${field}`)}<textarea className="input" aria-label={t(`Requirements.${field}`)} value={fields[field]} maxLength={10_000} rows={['goal', 'scope', 'acceptance'].includes(field) ? 3 : 1} onChange={(event) => { setFields({ ...fields, [field]: event.target.value }); setFieldsDirty(true); onDirty(true) }} /></label>)}
+      {!projectIterationsSupported && <>
+        {(['project', 'release'] as const).map((field) => <label key={field}>{t(`Requirements.${field}`)}<textarea className="input" aria-label={t(`Requirements.${field}`)} value={fields[field]} maxLength={10_000} rows={1} onChange={(event) => { setFields({ ...fields, [field]: event.target.value }); setFieldsDirty(true); onDirty(true) }} /></label>)}
+      </>}
+      {projectIterationsSupported && <RequirementProjectFields fields={fields}
+        disabled={historical || busy || solutionDirty || Boolean(feedback || confirmer)}
+        onChange={(selection) => { setFields({ ...fields, ...selection }); setFieldsDirty(true); onDirty(true) }} />}
       <label>{t('Requirements.repos')}<ProjectPicker projects={fields.repos.map((path) => ({ path, worktreePath: null }))} onChange={(repos) => { setFields({ ...fields, repos }); setFieldsDirty(true); onDirty(true) }} /></label>
     </fieldset>
     {!historical && <div className="toolbar">

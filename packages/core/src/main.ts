@@ -1,4 +1,5 @@
 import { RequirementStore } from './requirement-store'
+import { RequirementProjectStore } from './requirement-project-store'
 import { RequirementService } from './requirement-service'
 import { investigationPermission, investigationRef, SourceInvestigationService } from './source-investigation-service'
 import { SourceInvestigationStore } from './source-investigation-store'
@@ -740,8 +741,9 @@ sources.automatic = sourceInvestigations
 conversations.setAutomaticInvestigation(sourceInvestigations)
 
 const requirementStore = new RequirementStore(paths.database)
+const requirementProjects = new RequirementProjectStore(paths.database)
 const requirements = new RequirementService(requirementStore, sources, service, (requirement) => server?.broadcast('requirements.changed', { requirement }), Date.now,
-  new ConversationFiles((id) => conversations.get(id)), () => chatSettings.current().knowledgeBase?.path ?? null)
+  new ConversationFiles((id) => conversations.get(id)), () => chatSettings.current().knowledgeBase?.path ?? null, requirementProjects)
 
 const token = randomBytes(32).toString('hex')
 server = await startRpcServer({
@@ -819,6 +821,7 @@ async function shutdown(): Promise<void> {
   await removeCoreEndpoint(process.pid)
   await sourceUpdates?.close()
   sourceUpdateStore.close()
+  requirementProjects.close()
   requirementStore.close()
   store.close()
   conversationsStore.close()

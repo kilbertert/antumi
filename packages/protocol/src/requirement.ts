@@ -7,7 +7,8 @@ export const RequirementFields = z.object({
   owner: Text, reviewer: Text, project: Text, release: Text,
   goal: Text, users: Text, scope: Text, nonGoals: Text,
   acceptance: Text, constraints: Text, questions: Text,
-  repos: z.array(z.string().trim().min(1)).max(MAX_TASK_REPOS)
+  repos: z.array(z.string().trim().min(1)).max(MAX_TASK_REPOS),
+  businessProjectId: z.string().uuid().nullable().optional(), iterationId: z.string().uuid().nullable().optional()
 })
 export type RequirementFields = z.infer<typeof RequirementFields>
 export const EMPTY_REQUIREMENT_FIELDS: RequirementFields = {

@@ -19,3 +19,8 @@
 .requirement-prototype { display: grid; gap: 8px; justify-items: start; }
 .requirement-prototype label, .requirement-prototype-frame { width: 100%; }
 .requirement-prototype-frame { height: 420px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.requirement-catalog { grid-column: 1 / -1; }
+.requirement-catalog-body { display: grid; gap: 12px; padding-top: 12px; }
+.requirement-catalog-body .requirement-evidence-search { flex-wrap: wrap; }
+.requirement-catalog-body .input { flex: 1; min-width: 0; }
+.requirement-iteration-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }

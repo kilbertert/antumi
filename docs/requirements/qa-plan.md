@@ -7,9 +7,10 @@ owner confirmation with development input). No live company data belongs here.
 
 Scope: source import, immutable structured revisions, manually curated solution
 drafts, review records, selected project and configured knowledge-base evidence,
-stale-result detection and idempotent task handoff.
-Business project/version are labels in this slice, separate from repository
-paths. The prototype is a single self-contained HTML snapshot per solution.
+business project iteration assignment, stale-result detection and idempotent task handoff.
+Business projects and iterations have stable directory IDs and per-revision
+display labels, separate from repository paths. Legacy text fields remain usable.
+The prototype is a single self-contained HTML snapshot per solution.
 External prototype providers, automatic knowledge retrieval and enterprise
 identities are later slices. Recording a confirmer's name is not authenticated authorization.
 
@@ -76,6 +77,20 @@ provider, synthetic issue and temporary repository. Never read real credentials.
   directory itself are absent from Agent context and project paths. Repeat with
   no configured knowledge base and with an Obsidian-kind folder. Clean up the
   temporary database, repo and knowledge folder.
+- R12 / project iteration: in the test database create a business project and two
+  iterations. Assign iteration 1.2 to a requirement, save and restart; expect the
+  stable IDs and displayed labels to survive. Close 1.2 and activate 1.3; create
+  a new requirement revision and assign 1.3. Expect revision 1 to retain 1.2 and
+  revision 2 to show 1.3. Try to create or submit a revision using closed 1.2;
+  expect a business rejection and no version increment. Simulate an old Core
+  rewriting requirement JSON; verify side-table assignments survive unchanged
+  labels, while changed legacy labels are not attached to stale IDs. Inject a
+  side-table write failure; expect the whole requirement write to roll back.
+  Accept a solution, close its iteration and create the next version in the same
+  project; expect accepted history and the next iteration both to remain usable.
+  In the actual workbench create a project and iteration, save/reload, activate,
+  close with confirmation and switch revisions; check dark/light and narrow
+  layouts. Confirm repo paths remain distinct from business project IDs.
 
 Store/service tests and integrated RPC tests execute R1-R4 and protocol gates.
 Evidence service tests execute R8 and R11 with temporary repositories, knowledge

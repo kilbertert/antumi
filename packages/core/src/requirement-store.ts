@@ -1,7 +1,9 @@
 import { DatabaseSync } from 'node:sqlite'
-import { Requirement, type TaskSource } from '@antumi/protocol'
+import { Requirement, RequirementFields, type TaskSource } from '@antumi/protocol'
 import { z } from 'zod'
 import { Rejection } from './rejection'
+
+const IterationAssignment = RequirementFields.pick({ businessProjectId: true, iterationId: true, project: true, release: true })
 
 // Tables belong to TaskStore's additive migrations, including the atomic task-handoff link.
 export class RequirementStore {
@@ -9,6 +11,7 @@ export class RequirementStore {
   constructor(file: string) {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode = WAL')
+    this.db.exec('PRAGMA foreign_keys = ON')
     this.db.exec('CREATE TABLE IF NOT EXISTS requirement_solution_evidence (requirement_id TEXT NOT NULL, solution_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (requirement_id, solution_id))')
     this.db.exec('CREATE TABLE IF NOT EXISTS requirement_prototypes (requirement_id TEXT NOT NULL, solution_id TEXT NOT NULL, html TEXT NOT NULL, PRIMARY KEY (requirement_id, solution_id))')
     this.db.exec('CREATE TABLE IF NOT EXISTS requirement_knowledge_evidence (requirement_id TEXT NOT NULL, solution_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (requirement_id, solution_id))')
@@ -40,6 +43,14 @@ export class RequirementStore {
       const written = this.db.prepare('UPDATE requirements SET data = ?, version = ?, updated_at = ? WHERE id = ? AND version = ?')
         .run(this.summaryJson(next), next.version, next.updatedAt, next.id, version)
       if (!written.changes) throw new Rejection('requirement-conflict', '需求已在另一窗口更新，请重新加载后保存')
+      const putAssignment = this.db.prepare('INSERT INTO requirement_iteration_assignments (requirement_id, revision_number, data) VALUES (?, ?, ?) ON CONFLICT(requirement_id, revision_number) DO UPDATE SET data = excluded.data')
+      const removeChangedAssignment = this.db.prepare("DELETE FROM requirement_iteration_assignments WHERE requirement_id = ? AND revision_number = ? AND (json_extract(data, '$.project') != ? OR json_extract(data, '$.release') != ?)")
+      for (const revision of next.revisions) {
+        const fields = revision.fields
+        if (fields.businessProjectId !== undefined || fields.iterationId !== undefined) {
+          putAssignment.run(next.id, revision.number, JSON.stringify(IterationAssignment.parse(fields)))
+        } else removeChangedAssignment.run(next.id, revision.number, fields.project, fields.release)
+      }
       const insert = this.db.prepare('INSERT INTO requirement_solution_evidence (requirement_id, solution_id, data) VALUES (?, ?, ?) ON CONFLICT(requirement_id, solution_id) DO UPDATE SET data = excluded.data')
       this.db.prepare('DELETE FROM requirement_solution_evidence WHERE requirement_id = ?').run(next.id)
       const putKnowledge = this.db.prepare('INSERT INTO requirement_knowledge_evidence (requirement_id, solution_id, data) VALUES (?, ?, ?) ON CONFLICT(requirement_id, solution_id) DO UPDATE SET data = excluded.data')
@@ -70,16 +81,29 @@ export class RequirementStore {
     const knowledgeEvidence = new Map(this.db.prepare('SELECT solution_id, data FROM requirement_knowledge_evidence WHERE requirement_id = ?').all(requirement.id)
       .map((item) => z.object({ solution_id: z.string(), data: z.string() }).parse(item))
       .map(({ solution_id, data }) => [solution_id, z.object({ evidence: Requirement.shape.solutions.element.shape.knowledgeEvidence }).parse(JSON.parse(data)).evidence]))
+    const assignments = this.db.prepare('SELECT revision_number, data FROM requirement_iteration_assignments WHERE requirement_id = ?').all(requirement.id)
+    const iterationAssignments = new Map(assignments
+      .map((item) => z.object({ revision_number: z.number(), data: z.string() }).parse(item))
+      .map(({ revision_number, data }) => [revision_number, IterationAssignment.parse(JSON.parse(data))]))
     const prototypes = includePrototype
       ? this.db.prepare('SELECT solution_id, html FROM requirement_prototypes WHERE requirement_id = ?').all(requirement.id)
       : []
     const htmlById = new Map(prototypes.map((item) => z.object({ solution_id: z.string(), html: z.string() }).parse(item))
       .map(({ solution_id, html }) => [solution_id, html]))
-    return Requirement.parse({ ...requirement, solutions: requirement.solutions.map((solution) => ({
-      ...solution, ...evidence.get(solution.id), knowledgeEvidence: knowledgeEvidence.get(solution.id), prototypeHtml: htmlById.get(solution.id)
-    })) })
+    return Requirement.parse({ ...requirement,
+      revisions: requirement.revisions.map((revision) => {
+        const assignment = iterationAssignments.get(revision.number)
+        return assignment?.project === revision.fields.project && assignment.release === revision.fields.release
+          ? { ...revision, fields: { ...revision.fields, businessProjectId: assignment.businessProjectId, iterationId: assignment.iterationId } }
+          : revision
+      }),
+      solutions: requirement.solutions.map((solution) => ({ ...solution, ...evidence.get(solution.id), knowledgeEvidence: knowledgeEvidence.get(solution.id), prototypeHtml: htmlById.get(solution.id) }))
+    })
   }
   private summaryJson(requirement: Requirement): string {
-    return JSON.stringify({ ...requirement, solutions: requirement.solutions.map(({ evidence: _evidence, knowledgeEvidence: _knowledgeEvidence, evidenceStale: _evidenceStale, prototypeHtml: _prototypeHtml, ...solution }) => solution) })
+    return JSON.stringify({ ...requirement,
+      revisions: requirement.revisions.map(({ fields, ...revision }) => ({ ...revision, fields: (({ businessProjectId: _businessProjectId, iterationId: _iterationId, ...legacyFields }) => legacyFields)(fields) })),
+      solutions: requirement.solutions.map(({ evidence: _evidence, knowledgeEvidence: _knowledgeEvidence, evidenceStale: _evidenceStale, prototypeHtml: _prototypeHtml, ...solution }) => solution)
+    })
   }
 }

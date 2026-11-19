@@ -6,6 +6,7 @@ import type { SourceService } from './source-service'
 import type { TaskService } from './task-service'
 import type { ConversationFiles } from './conversation-files'
 import { normalizeRepoPath } from './workspace'
+import type { RequirementProjectStore } from './requirement-project-store'
 
 export class RequirementService {
   constructor(private readonly store: RequirementStore,
@@ -14,9 +15,15 @@ export class RequirementService {
     private readonly emit: (requirement: Requirement) => void,
     private readonly now: () => number = Date.now,
     private readonly files?: Pick<ConversationFiles, 'readProjectEvidence'>,
-    private readonly knowledgeBasePath: () => string | null = () => null) {}
+    private readonly knowledgeBasePath: () => string | null = () => null,
+    private readonly projectCatalog?: RequirementProjectStore) {}
   get evidenceSupported(): boolean { return this.files !== undefined }
   get knowledgeEvidenceSupported(): boolean { return this.files !== undefined }
+  get projectIterationsSupported(): boolean { return this.projectCatalog !== undefined }
+  projects() { if (!this.projectCatalog) throw new Rejection('requirement-project-iterations-unavailable'); return this.projectCatalog.catalog() }
+  saveProject(input: { id?: string; name: string }) { if (!this.projectCatalog) throw new Rejection('requirement-project-iterations-unavailable'); return this.projectCatalog.saveProject(input) }
+  archiveProject(id: string, archived: boolean) { if (!this.projectCatalog) throw new Rejection('requirement-project-iterations-unavailable'); return this.projectCatalog.archiveProject(id, archived) }
+  saveIteration(input: { id?: string; projectId: string; name: string; status: 'planned' | 'active' | 'closed' }) { if (!this.projectCatalog) throw new Rejection('requirement-project-iterations-unavailable'); return this.projectCatalog.saveIteration(input) }
   list(): Requirement[] { return this.store.list() }
   get(id: string): Requirement { return this.store.get(id) }
   async import({ provider, instance, key }: RpcParsedParams<'requirements.import'>): Promise<Requirement> {
@@ -31,10 +38,18 @@ export class RequirementService {
   async revise({ id, version, fields, refreshSource }: RpcParsedParams<'requirements.revise'>): Promise<Requirement> {
     let requirement = this.expected(id, version)
     const previous = requirement.revisions.at(-1)!
-    const normalized = RequirementFields.parse({ ...fields, repos: [...new Set(fields.repos.map(normalizeRepoPath))] })
+    let normalized = RequirementFields.parse({ ...fields, repos: [...new Set(fields.repos.map(normalizeRepoPath))] })
+    const keepsProjectSelection = normalized.project === previous.fields.project && normalized.release === previous.fields.release
+    const businessProjectId = normalized.businessProjectId === undefined ? (keepsProjectSelection ? previous.fields.businessProjectId : null) : normalized.businessProjectId
+    const iterationId = normalized.iterationId === undefined ? (keepsProjectSelection ? previous.fields.iterationId : null) : normalized.iterationId
+    if ((businessProjectId || iterationId) && !this.projectCatalog) throw new Rejection('requirement-project-iterations-unavailable')
+    const selection = this.projectCatalog?.selection(businessProjectId, iterationId)
+    const hasProjectAssignment = fields.businessProjectId !== undefined || fields.iterationId !== undefined || previous.fields.businessProjectId !== undefined || previous.fields.iterationId !== undefined
+    normalized = { ...normalized, ...(hasProjectAssignment ? { businessProjectId: selection ? businessProjectId : null, iterationId: selection ? iterationId : null } : {}), ...(selection ?? {}) }
     const fetched = refreshSource ? await this.sources.requirementSnapshot(previous.source.provider, previous.source.instance, previous.source.key) : previous
     if (refreshSource && 'binding' in fetched && fetched.binding !== requirement.binding) throw new Rejection('requirement-source-changed', '禅道站点已更换，请重新导入；旧需求历史已保留')
     requirement = this.expected(id, version)
+    this.projectCatalog?.assertSelectable(businessProjectId, iterationId)
     const at = this.now()
     return this.save({ ...requirement, revisions: [...requirement.revisions, { number: previous.number + 1,
       fields: normalized, source: fetched.source, snapshot: fetched.snapshot, createdAt: at }], updatedAt: at }, version)
@@ -153,6 +168,11 @@ export class RequirementService {
     const blocker = action === 'changes' ? (solution.status === 'review' && solution.revision === requirement.revisions.at(-1)!.number ? null : 'solution-not-reviewing')
       : solutionBlocker(requirement, solution, action === 'submit' ? 'submit' : 'accept')
     if (blocker) throw new Rejection(blocker)
+    if (action === 'submit') {
+      const fields = requirement.revisions.at(-1)!.fields
+      if ((fields.businessProjectId || fields.iterationId) && !this.projectCatalog) throw new Rejection('requirement-project-iterations-unavailable')
+      this.projectCatalog?.assertSelectable(fields.businessProjectId, fields.iterationId)
+    }
     if (action !== 'submit' && confirmer?.trim() !== requirement.revisions.at(-1)!.fields.owner) throw new Rejection('requirement-owner-confirmation', '请记录需求负责人的确认')
     if (action === 'changes' && !feedback?.trim()) throw new Rejection('review-feedback-required')
     const at = this.now()

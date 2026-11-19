@@ -15,10 +15,34 @@ Feature: Turn a ZenTao requirement into an accepted development brief
       When I reload the window and reopen the requirement
       Then my edits are restored with their original version
       And I cannot overwrite changes accepted by another window
+
     Scenario: Protect concurrent edits
       Given two windows opened the same requirement revision
       When one window saves a new revision
       Then the other window cannot overwrite it with its older revision
+
+  Rule: Requirements target a business project iteration
+    Scenario: Create and select a project iteration
+      Given I can manage the business project directory in this Core
+      When I create a project and an iteration and select both for a requirement
+      Then the requirement revision records stable project and iteration references
+      And its displayed project and target version are the names selected at that revision
+      And the linked code repositories remain separate
+    Scenario: Keep iteration history attached to the original revision
+      Given a requirement revision assigned to iteration 1.2
+      When iteration 1.2 is closed and iteration 1.3 becomes active
+      Then the old requirement revision still shows iteration 1.2
+      And a new requirement revision can select iteration 1.3
+      And an already accepted solution remains tied to its old requirement revision
+    Scenario: Continue a project after accepting its first version
+      Given an accepted solution assigned to iteration 1.2
+      When I close iteration 1.2 and create iteration 1.3 in the same project
+      Then the accepted solution keeps its original iteration and can be read
+      And a new revision can target iteration 1.3
+    Scenario: Prevent new work from targeting a closed iteration
+      Given a closed business iteration
+      When I save or submit a new requirement revision against it
+      Then Core rejects the write and leaves the saved revision unchanged
 
   Rule: Review and development refer to a specific requirement revision
     Scenario: Produce a review-ready architecture proposal
