@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RequirementFields, rpcSchemas, mobileMayCall, type Requirement, type SourceSnapshot, type TaskSource } from '@antumi/protocol'
 import { RequirementStore } from './requirement-store'
-import { RequirementService, requirementBrief } from './requirement-service'
+import { REQUIREMENT_ARCHITECTURE_PROMPT, RequirementService, requirementBrief } from './requirement-service'
 import { TaskStore } from './task-store'
 import { TaskService } from './task-service'
 import { ProjectRegistry } from './project-registry'
@@ -188,5 +188,26 @@ describe('requirement to development task', () => {
     expect(rpcSchemas['requirements.revise'].params.safeParse({ id: 'bad', version: 1, fields: fields() }).success).toBe(false)
     expect(rpcSchemas['requirements.handoff'].params.safeParse({ id: 'not-a-uuid', version: 0, solutionId: 'x' }).success).toBe(false)
     expect(mobileMayCall('requirements.handoff', 'operate')).toBe(false)
+  })
+  it('defines a review-ready architecture inference output contract', () => {
+    for (const section of ['架构结论', '现状与复用', '组件与职责', '关键流程', '数据与接口', '权限与安全', '替代方案', '风险与迁移', '验收与测试']) {
+      expect(REQUIREMENT_ARCHITECTURE_PROMPT).toContain(section)
+    }
+    expect(REQUIREMENT_ARCHITECTURE_PROMPT).toContain('只分析，不修改项目文件')
+    expect(REQUIREMENT_ARCHITECTURE_PROMPT).toContain('不要把猜测写成现状')
+  })
+
+  it('builds requirement analysis context from the current revision and checked evidence', async () => {
+    const requirement = await imported()
+    const current = await service.revise({ ...ref(requirement), fields: fields() })
+    const file = { path: path.join(root, 'design.md'), project: root, relative: 'design.md', excerpt: 'Use the shared lookup', mtimeMs: 1, checkedAt: 2, sha256: 'd'.repeat(64) }
+    const withEvidence = new RequirementService(store,
+      { requirementBinding: () => binding, requirementSnapshot: async () => ({ source, snapshot, binding }) },
+      new TaskService(tasks, projects, root, () => {}, new AttachmentStore(root)), emitted, Date.now,
+      { readProjectEvidence: async () => ({ ...file, text: file.excerpt }) })
+    const prompt = await withEvidence.context({ ...ref(current), evidence: [file] })
+    expect(prompt).toContain('JSON')
+    expect(prompt).toContain('design.md')
+    expect(prompt).toContain('Use the shared lookup')
   })
 })

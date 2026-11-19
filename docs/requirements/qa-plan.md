@@ -30,6 +30,11 @@ provider, synthetic issue and temporary repository. Never read real credentials.
   saving or review and expect a stale-evidence error. Try a sibling path and a
   symlink escaping the repo; both must be rejected. Binary, invalid UTF-8 and
   files over the existing 2 MiB preview limit must return a visible error.
+- R9 / architecture proposal: request analysis with a synthetic requirement and
+  selected project excerpt. Expect the standard Agent conversation to ask for
+  component boundaries, flows, data/API, security, alternatives, migration and
+  acceptance tests; evidence facts must name their source path and unverified
+  facts stay explicit. Confirm no message is sent until the user chooses to send.
 - R3 / review and handoff: save goal/scope/acceptance/owner and repository; save a
   solution; submit; record development feedback and owner acceptance; hand off
   twice. Expect the same pending task, full brief/source and no Agent launch.
@@ -53,6 +58,7 @@ provider, synthetic issue and temporary repository. Never read real credentials.
 Store/service tests and integrated RPC tests execute R1-R4 and protocol gates.
 Evidence service tests execute R8 with temporary repositories and files.
 Desktop interaction evidence for R5-R6 must be reported separately from tests;
+R9 prompt checks run with the core suite and verify the architecture output sections;
 headless Chromium interaction covers the renderer with a test preload bridge,
 but does not prove Windows Electron, native dialogs or live integrations. Retain run
 identity, environment, timestamp and output in the private task evidence area.
