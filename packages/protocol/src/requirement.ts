@@ -29,11 +29,14 @@ export const RequirementEvidenceFile = z.object({
 })
 export type RequirementEvidenceFile = z.infer<typeof RequirementEvidenceFile>
 export const SolutionStatus = z.enum(['draft', 'review', 'changes', 'accepted'])
+export const MAX_PROTOTYPE_HTML_LENGTH = 50_000
+export const RequirementPrototypeHtml = z.string().max(MAX_PROTOTYPE_HTML_LENGTH)
 export const RequirementSolution = z.object({
   id: z.string().uuid(), revision: z.number().int().positive(),
   markdown: z.string().trim().max(50_000), status: SolutionStatus,
   evidence: z.array(RequirementEvidence).max(20).default([]),
   evidenceStale: z.boolean().optional(),
+  prototypeHtml: RequirementPrototypeHtml.optional(),
   reviews: z.array(z.object({ decision: z.enum(['changes', 'accepted']),
     confirmer: Text.min(1), feedback: Text, createdAt: z.number() })),
   createdAt: z.number(), updatedAt: z.number()

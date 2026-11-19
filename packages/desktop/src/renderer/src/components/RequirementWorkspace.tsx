@@ -4,12 +4,13 @@ import { openConversationDraft, perform, selectTask, useCore } from '../core-sto
 import { useOccludesBrowser } from '../browser-occlusion'
 import { askConfirm } from '../confirm-dialog'
 import { keepRequirementDraft, requirementDraft } from '../requirement-drafts'
-import { insertIntoComposer } from '../composer-insertions'
+import { composerDraft, saveComposerDraft } from '../composer-drafts'
 import { t } from '../i18n'
 import { dayAndTime } from '../labels'
 import { ChatPicker } from './ChatPicker'
 import { ProjectPicker } from './ProjectPicker'
 import { MarkdownEditor } from './MarkdownEditor'
+import { RequirementPrototype } from './RequirementPrototype'
 import { SourceAttachments } from './SourceAttachments'
 import { ImageStrip } from './ImageStrip'
 import { ImageViewer } from './ImageViewer'
@@ -78,6 +79,7 @@ export function RequirementWorkspace({ initialId, onClose }: { initialId: string
 }
 
 function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, onTask }: { requirement: Requirement; evidenceSupported: boolean; onSave: (next: Requirement) => void; onDirty: (dirty: boolean) => void; onTask: () => void }) {
+  const prototypeSupported = useCore((state) => state.rpc?.features.includes('requirement-prototypes') ?? false)
   const latest = requirement.revisions.at(-1)!
   const [revisionNumber, setRevisionNumber] = useState(latest.number)
   const revision = requirement.revisions.find((each) => each.number === revisionNumber)!
@@ -88,6 +90,7 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
   const [solutionId, setSolutionId] = useState<string | null>(draft ? draft.solutionId : requirement.solutions.filter((each) => each.revision === latest.number).at(-1)?.id ?? null)
   const solution = requirement.solutions.find((each) => each.id === solutionId)
   const [markdown, setMarkdown] = useState(draft?.markdown ?? solution?.markdown ?? '')
+  const [prototypeHtml, setPrototypeHtml] = useState(draft?.prototypeHtml ?? solution?.prototypeHtml ?? '')
   const [solutionDirty, setSolutionDirty] = useState(draft?.solutionDirty ?? false)
   const [feedback, setFeedback] = useState(draft?.feedback ?? '')
   const [confirmer, setConfirmer] = useState(draft?.confirmer ?? '')
@@ -112,16 +115,16 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
     const dirty = fieldsDirty || solutionDirty || Boolean(feedback || confirmer || file || excerpt)
     onDirty(dirty)
     if (dirty || file || excerpt || evidence.length) keepRequirementDraft(requirement.id, { version: draft?.version ?? requirement.version, fields, fieldsDirty,
-      solutionDirty, solutionId, markdown, feedback, confirmer, evidence, query, file: file?.path ?? null, excerpt })
-  }, [fields, fieldsDirty, solutionDirty, solutionId, markdown, feedback, confirmer, evidence, query, file, excerpt])
+      solutionDirty, solutionId, markdown, prototypeHtml, feedback, confirmer, evidence, query, file: file?.path ?? null, excerpt })
+  }, [fields, fieldsDirty, solutionDirty, solutionId, markdown, prototypeHtml, feedback, confirmer, evidence, query, file, excerpt])
   const act = async (action: () => Promise<Requirement | null>) => {
     if (pending.current) return
     pending.current = true; setBusy(true)
     try { const next = await action(); if (next) onSave(next) } finally { pending.current = false; setBusy(false) }
   }
   const ref = { id: requirement.id, version: draft?.version ?? requirement.version }
-  const showRevision = (number: number) => { setViewing(null); setRevisionNumber(number); setFields(requirement.revisions.find((each) => each.number === number)!.fields); const choice = requirement.solutions.filter((each) => each.revision === number).at(-1); setSolutionId(choice?.id ?? null); setMarkdown(choice?.markdown ?? ''); setEvidence(choice?.evidence ?? []); setSolutionDirty(false) }
-  const chooseSolution = (id: string) => { const choice = requirement.solutions.find((each) => each.id === id); setSolutionId(choice?.id ?? null); setMarkdown(choice?.markdown ?? ''); setEvidence(choice?.evidence ?? []); setFile(null); setExcerpt(''); setSolutionDirty(false) }
+  const showRevision = (number: number) => { setViewing(null); setRevisionNumber(number); setFields(requirement.revisions.find((each) => each.number === number)!.fields); const choice = requirement.solutions.filter((each) => each.revision === number).at(-1); setSolutionId(choice?.id ?? null); setMarkdown(choice?.markdown ?? ''); setPrototypeHtml(choice?.prototypeHtml ?? ''); setEvidence(choice?.evidence ?? []); setSolutionDirty(false) }
+  const chooseSolution = (id: string) => { const choice = requirement.solutions.find((each) => each.id === id); setSolutionId(choice?.id ?? null); setMarkdown(choice?.markdown ?? ''); setPrototypeHtml(choice?.prototypeHtml ?? ''); setEvidence(choice?.evidence ?? []); setFile(null); setExcerpt(''); setSolutionDirty(false) }
   const searchEvidence = async () => {
     const found = await perform((rpc) => rpc.call('requirements.searchEvidence', { ...ref, query }))
     if (found) setMatches(found)
@@ -144,14 +147,18 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
       setSolutionDirty(true); onDirty(true)
     }
   }
-  const analyze = async () => {
+  const analyze = async (prototypeFor?: string) => {
     if (pending.current) return
     pending.current = true; setBusy(true)
-    const context = await perform((rpc) => rpc.call('requirements.context', { ...ref, ...(evidenceSupported ? { evidence } : {}) }))
+    const context = await perform((rpc) => rpc.call('requirements.context', { ...ref, ...(prototypeFor ? { prototypeFor } : evidenceSupported ? { evidence } : {}) }))
     if (!context) { pending.current = false; setBusy(false); return }
+    // Keep one composer per requirement version so a new request cannot append to another project's draft.
+    const key = 'requirement:' + ref.id + '/' + ref.version + '/' +
+      (prototypeFor ?? (solutionDirty ? crypto.randomUUID() : 'analysis:' + (solutionId ?? 'new')))
+    const previous = composerDraft(key)
+    if (!previous.text && !previous.images.length) saveComposerDraft(key, { text: context.text, images: context.images, mentions: [] })
     onTask()
-    openConversationDraft(context.projectPaths, null, null, true)
-    insertIntoComposer(null, { text: context.text, images: context.images })
+    openConversationDraft(context.projectPaths, null, { key, title: requirement.title }, true)
   }
   const handoff = async () => {
     if (!solution || pending.current) return
@@ -195,7 +202,16 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
     {solution?.evidenceStale && <p role="alert">{t('Requirements.evidenceChanged')}</p>}
     {solution && solution.revision !== latest.number && <p role="status">{t('Requirements.stale')}</p>}
     <MarkdownEditor key={`${solutionId ?? 'new'}/${editable}/${fieldsDirty}/${Boolean(feedback || confirmer)}`} value={markdown} label={t('Requirements.solution')} hint={t('Requirements.solutionHint')} readOnly={!editable || fieldsDirty || Boolean(feedback || confirmer)} onChange={(value) => { setMarkdown(value); setSolutionDirty(true); onDirty(true) }} />
-    {editable && <button type="button" className="button" disabled={busy || fieldsDirty || Boolean(feedback || confirmer)} onClick={() => void act(() => perform((rpc) => rpc.call('requirements.solution', { ...ref, ...(solutionId ? { solutionId } : {}), markdown, ...(evidenceSupported ? { evidence } : {}) })))}>{t('Requirements.saveSolution')}</button>}
+    {prototypeSupported && (editable || prototypeHtml) && <RequirementPrototype key={solutionId ?? 'new'} html={prototypeHtml}
+      onChange={editable && !fieldsDirty && !feedback && !confirmer ? (html) => {
+        setPrototypeHtml(html)
+        setSolutionDirty(true)
+        onDirty(true)
+      } : undefined}
+      onRequest={editable && solution?.markdown && !solutionDirty ? () => void analyze(solution.id) : undefined} />}
+    {!prototypeSupported && solutionDirty && prototypeHtml !== (solution?.prototypeHtml ?? '') &&
+      <p role="status">{t('Requirements.prototypeNeedsCore')}</p>}
+    {editable && <button type="button" className="button" disabled={busy || fieldsDirty || Boolean(feedback || confirmer) || (!prototypeSupported && prototypeHtml !== (solution?.prototypeHtml ?? ''))} onClick={() => void act(() => perform((rpc) => rpc.call('requirements.solution', { ...ref, ...(solutionId ? { solutionId } : {}), markdown, ...(evidenceSupported ? { evidence } : {}), ...(prototypeSupported && prototypeHtml !== (solution?.prototypeHtml ?? '') ? { prototypeHtml } : {}) })))}>{t('Requirements.saveSolution')}</button>}
     {solution?.reviews.map((review, index) => <p key={index}>{t(`Requirements.${review.decision}`)} · {review.confirmer} · {dayAndTime(review.createdAt)}<br />{review.feedback}</p>)}
     {solution && !historical && <div className="requirement-review">
       {solution.status === 'review' && solution.revision === latest.number && <>

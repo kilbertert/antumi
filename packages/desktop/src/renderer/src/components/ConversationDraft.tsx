@@ -301,7 +301,7 @@ export function ConversationDraft() {
               <p className="chat-draft-hint muted">
                 {issue
                   ? t('ConversationDraft.agentReadsTheOriginalIssueAndInvestigatesIn')
-                  : from ? t('ConversationDraft.usingTheConfigurationOfWithAFreshConversation', { value1: from.title }) : t('ConversationDraft.sendingTheFirstMessageCreatesTheConversationAnd')}
+                  : from?.configuration ? t('ConversationDraft.usingTheConfigurationOfWithAFreshConversation', { value1: from.title }) : t('ConversationDraft.sendingTheFirstMessageCreatesTheConversationAnd')}
               </p>
               <OtherProjectsHint agent={agent} projectCount={projectPaths.length} />
               {!issue && !profile && <ConversationTip agent={agent} agents={installed.length} images={imagesSupported} />}

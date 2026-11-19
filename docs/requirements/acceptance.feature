@@ -54,6 +54,20 @@ Feature: Turn a ZenTao requirement into an accepted development brief
       Then the existing conversation composer contains its revision and structured fields
       And I choose the Agent, model and provider using Antumi's existing controls
 
+  Rule: A solution can carry a prototype for review
+    Scenario: Generate, save and review an HTML prototype
+      Given a saved solution for the current requirement revision
+      When I open the prototype request in the existing Agent composer
+      Then the request contains the requirement, saved solution and selected evidence
+      And I choose when to send it and which Agent and model to use
+      When I paste the HTML result and save the solution
+      Then the prototype is preserved across reloads and is read-only during review
+      And previewing it does not run scripts or load external resources
+    Scenario: Use a client or Core without prototype support
+      Given a solution with a saved prototype
+      When an older client saves the solution without sending a prototype
+      Then a compatible client can still open the saved prototype
+
   Rule: Existing clients and workflows keep working
     Scenario: Use core without requirements support
       Given a client connected to core without the requirements capability

@@ -178,7 +178,7 @@ function loadRenderer(win: BrowserWindow, hash?: string): void {
   const owner = win.webContents.id
   // A visualization may run scripts, but cannot replace its sandbox with a remote page.
   win.webContents.on('will-frame-navigate', (event) => {
-    if (!event.isMainFrame && (event.frame?.url.startsWith(`${VISUALIZATION_SCHEME}:`) || !event.url.startsWith(`${PREVIEW_SCHEME}:`) && !event.url.startsWith(`${VISUALIZATION_SCHEME}:`) && event.url !== 'about:blank')) event.preventDefault()
+    if (!event.isMainFrame && (event.frame?.url === 'about:srcdoc' || event.frame?.url.startsWith(`${VISUALIZATION_SCHEME}:`) || !event.url.startsWith(`${PREVIEW_SCHEME}:`) && !event.url.startsWith(`${VISUALIZATION_SCHEME}:`) && event.url !== 'about:blank')) event.preventDefault()
   })
   win.webContents.on('destroyed', () => visualizationPages.remove(owner))
   win.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) visualizationPages.remove(owner) })
