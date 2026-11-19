@@ -21,6 +21,12 @@ Feature: Turn a ZenTao requirement into an accepted development brief
       Then the other window cannot overwrite it with its older revision
 
   Rule: Review and development refer to a specific requirement revision
+    Scenario: Produce a review-ready architecture proposal
+      Given a structured requirement with linked repositories and selected evidence
+      When I start analysis using Antumi's configured Agent and model
+      Then the conversation asks for architecture conclusions, boundaries, components, flows, data, security, alternatives, migration and acceptance tests
+      And project facts identify their evidence paths while unknown facts remain marked for verification
+      And the Agent does not edit project files or send the proposal automatically
     Scenario: Review selected project evidence
       Given a requirement linked to a code repository
       When I search its project files, open one, choose a verbatim excerpt and save a solution

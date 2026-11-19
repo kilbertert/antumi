@@ -1,4 +1,4 @@
-import { requirementBrief, type RequirementService } from './requirement-service'
+import { REQUIREMENT_ARCHITECTURE_PROMPT, requirementBrief, type RequirementService } from './requirement-service'
 import { homedir } from 'node:os'
 import type { AgentProfileService } from './agent-profile-service'
 import type { AgentCliMaintenance } from './agent-cli-maintenance'
@@ -502,7 +502,7 @@ export function createRpcHandlers(
       const citations = await requirementService().context({ id, version, evidence })
       const current = requirementService().get(id)
       if (current.version !== version) throw new Rejection('requirement-conflict')
-      const text = `请分析以下需求，明确缺失信息、可复用能力、推荐与备选方案、数据/接口/权限影响、风险与验收计划。只分析，不修改项目文件。\n\n${requirementBrief(current, current.revisions.at(-1)!)}\n\n${untrustedSource(revision.source, revision.snapshot, [], 50_000)}${citations}`
+      const text = `${REQUIREMENT_ARCHITECTURE_PROMPT}\n\n${requirementBrief(current, current.revisions.at(-1)!)}\n\n${untrustedSource(revision.source, revision.snapshot, [], 50_000)}${citations}`
       if (text.length > 100_000) throw new Rejection('requirement-brief-too-long', '需求超过会话长度上限，请精简结构化字段')
       return { text, projectPaths: revision.fields.repos, images: revision.snapshot.images }
     },
