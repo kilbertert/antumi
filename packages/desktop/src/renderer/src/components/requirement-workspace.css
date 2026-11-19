@@ -16,3 +16,6 @@
 .requirement-evidence-preview pre { max-height: 220px; overflow: auto; white-space: pre-wrap; background: var(--fill); padding: 12px; border-radius: var(--radius-sm); }
 .requirement-evidence-item { border-left: 2px solid var(--border-2); padding-left: 12px; }
 .requirement-evidence-item blockquote { margin: 4px 0; color: var(--text-muted); white-space: pre-wrap; }
+.requirement-prototype { display: grid; gap: 8px; justify-items: start; }
+.requirement-prototype label, .requirement-prototype-frame { width: 100%; }
+.requirement-prototype-frame { height: 420px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }

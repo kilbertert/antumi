@@ -149,7 +149,7 @@ describe('requirement to development task', () => {
     await expect(secured().review({ ...ref(ready), solutionId: ready.solutions[0]!.id, action: 'accepted', confirmer: '产品' })).rejects.toMatchObject({ reason: 'requirement-evidence-changed' })
     expect(store.get(ready.id).solutions[0]).toMatchObject({ status: 'changes', evidenceStale: true })
     currentFile = file
-    const citationContext = await secured().context({ ...ref(store.get(ready.id)), evidence: [quote] })
+    const { text: citationContext } = await secured().context({ ...ref(store.get(ready.id)), evidence: [quote] })
     expect(citationContext).toContain('design.md')
     expect(citationContext).toContain('不可信资料')
     await expect(secured().solution({ ...ref(store.get(ready.id)), markdown: 'still editable', evidence: [{ ...quote, path: '/outside/readme.md' }] })).rejects.toThrow('file-outside-project')
@@ -189,6 +189,41 @@ describe('requirement to development task', () => {
     expect(rpcSchemas['requirements.handoff'].params.safeParse({ id: 'not-a-uuid', version: 0, solutionId: 'x' }).success).toBe(false)
     expect(mobileMayCall('requirements.handoff', 'operate')).toBe(false)
   })
+
+  it('uses the saved design for a prototype request and preserves the reviewed HTML', async () => {
+    const start = await imported()
+    let requirement = await service.revise({ ...ref(start), fields: fields() })
+    const html = '<style>p { font-weight: bold }</style><p>门店筛选</p>'
+    requirement = await service.solution({ ...ref(requirement), markdown: '使用共享查询接口', prototypeHtml: html })
+    const solutionId = requirement.solutions[0]!.id
+    const request = await service.context({ ...ref(requirement), prototypeFor: solutionId })
+    expect(request).toMatchObject({ projectPaths: [root], images: snapshot.images })
+    expect(request.text).toContain('单页 HTML 原型')
+    expect(request.text).toContain('使用共享查询接口')
+    expect(request.text).toContain('<untrusted-source')
+    expect(service.get(requirement.id)).toEqual(requirement)
+
+    // A legacy Core writes the old JSON shape without the prototype field.
+    const legacy = new DatabaseSync(path.join(root, 'antumi.db'))
+    try {
+      legacy.prepare("UPDATE requirements SET data = json_set(data, '$.solutions[0].markdown', ?) WHERE id = ?").run('更新设计', requirement.id)
+    } finally { legacy.close() }
+    expect(service.get(requirement.id).solutions[0]).toMatchObject({ prototypeHtml: html, markdown: '更新设计' })
+    expect(service.list()[0]?.solutions[0]?.prototypeHtml).toBeUndefined()
+    requirement = await service.solution({ ...ref(requirement), solutionId, markdown: '更新设计' })
+    expect(requirement.solutions[0]?.prototypeHtml).toBe(html)
+    requirement = await service.review({ ...ref(requirement), solutionId, action: 'submit' })
+    await expect(service.solution({ ...ref(requirement), solutionId, markdown: '更新设计', prototypeHtml: '' }))
+      .rejects.toMatchObject({ reason: 'solution-not-editable' })
+    requirement = await service.review({ ...ref(requirement), solutionId, action: 'accepted', confirmer: '产品' })
+    const task = await service.handoff({ ...ref(requirement), solutionId })
+    expect(task.details).toContain(solutionId)
+    expect(task.details).not.toContain(html)
+    expect(service.get(requirement.id).solutions[0]?.prototypeHtml).toBe(html)
+
+    const next = await service.revise({ ...ref(requirement), fields: fields() })
+    await expect(service.context({ ...ref(next), prototypeFor: solutionId })).rejects.toMatchObject({ reason: 'requirement-stale' })
+  })
   it('defines a review-ready architecture inference output contract', () => {
     for (const section of ['架构结论', '现状与复用', '组件与职责', '关键流程', '数据与接口', '权限与安全', '替代方案', '风险与迁移', '验收与测试']) {
       expect(REQUIREMENT_ARCHITECTURE_PROMPT).toContain(section)
@@ -205,7 +240,7 @@ describe('requirement to development task', () => {
       { requirementBinding: () => binding, requirementSnapshot: async () => ({ source, snapshot, binding }) },
       new TaskService(tasks, projects, root, () => {}, new AttachmentStore(root)), emitted, Date.now,
       { readProjectEvidence: async () => ({ ...file, text: file.excerpt }) })
-    const prompt = await withEvidence.context({ ...ref(current), evidence: [file] })
+    const { text: prompt } = await withEvidence.context({ ...ref(current), evidence: [file] })
     expect(prompt).toContain('JSON')
     expect(prompt).toContain('design.md')
     expect(prompt).toContain('Use the shared lookup')

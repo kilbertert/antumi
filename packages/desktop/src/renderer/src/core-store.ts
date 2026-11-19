@@ -132,7 +132,7 @@ export type CoreState = {
   // The inbox issue the new conversation is to look into; null for an ordinary one.
   conversationDraftIssue: DraftIssue | null
   // A fresh settings snapshot; its key also keeps this composer's input separate from other drafts.
-  conversationDraftFrom: { key: string; title: string; configuration: ConversationConfiguration } | null
+  conversationDraftFrom: { key: string; title: string; configuration?: ConversationConfiguration } | null
   taskMemberConversationId: string | null
   selectedId: string | null
   view: TaskView

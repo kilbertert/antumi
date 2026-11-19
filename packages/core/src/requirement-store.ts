@@ -10,10 +10,11 @@ export class RequirementStore {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('CREATE TABLE IF NOT EXISTS requirement_solution_evidence (requirement_id TEXT NOT NULL, solution_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (requirement_id, solution_id))')
+    this.db.exec('CREATE TABLE IF NOT EXISTS requirement_prototypes (requirement_id TEXT NOT NULL, solution_id TEXT NOT NULL, html TEXT NOT NULL, PRIMARY KEY (requirement_id, solution_id))')
   }
   close(): void { this.db.close() }
   list(): Requirement[] {
-    return this.db.prepare('SELECT data FROM requirements ORDER BY updated_at DESC').all().map((row) => this.read(row))
+    return this.db.prepare('SELECT data FROM requirements ORDER BY updated_at DESC').all().map((row) => this.read(row, false))
   }
   get(id: string): Requirement {
     const row = this.db.prepare('SELECT data FROM requirements WHERE id = ?').get(id)
@@ -36,11 +37,18 @@ export class RequirementStore {
     this.db.exec('BEGIN IMMEDIATE')
     try {
       const written = this.db.prepare('UPDATE requirements SET data = ?, version = ?, updated_at = ? WHERE id = ? AND version = ?')
-        .run(this.withoutEvidence(next), next.version, next.updatedAt, next.id, version)
+        .run(this.summaryJson(next), next.version, next.updatedAt, next.id, version)
       if (!written.changes) throw new Rejection('requirement-conflict', '需求已在另一窗口更新，请重新加载后保存')
       const insert = this.db.prepare('INSERT INTO requirement_solution_evidence (requirement_id, solution_id, data) VALUES (?, ?, ?) ON CONFLICT(requirement_id, solution_id) DO UPDATE SET data = excluded.data')
       this.db.prepare('DELETE FROM requirement_solution_evidence WHERE requirement_id = ?').run(next.id)
       for (const solution of next.solutions) insert.run(next.id, solution.id, JSON.stringify({ evidence: solution.evidence, evidenceStale: solution.evidenceStale }))
+      // Older Core versions rewrite the requirement and evidence rows but leave this snapshot alone.
+      const putPrototype = this.db.prepare('INSERT INTO requirement_prototypes VALUES (?, ?, ?) ON CONFLICT(requirement_id, solution_id) DO UPDATE SET html = excluded.html')
+      const removePrototype = this.db.prepare('DELETE FROM requirement_prototypes WHERE requirement_id = ? AND solution_id = ?')
+      for (const { id, prototypeHtml } of next.solutions) {
+        if (prototypeHtml) putPrototype.run(next.id, id, prototypeHtml)
+        else if (prototypeHtml === '') removePrototype.run(next.id, id)
+      }
       this.db.exec('COMMIT')
       return next
     } catch (error) {
@@ -48,14 +56,21 @@ export class RequirementStore {
       throw error
     }
   }
-  private read(row: unknown): Requirement {
+  private read(row: unknown, includePrototype = true): Requirement {
     const requirement = Requirement.parse(JSON.parse(z.object({ data: z.string() }).parse(row).data))
     const evidence = new Map(this.db.prepare('SELECT solution_id, data FROM requirement_solution_evidence WHERE requirement_id = ?').all(requirement.id)
       .map((item) => z.object({ solution_id: z.string(), data: z.string() }).parse(item))
       .map(({ solution_id, data }) => [solution_id, z.object({ evidence: Requirement.shape.solutions.element.shape.evidence, evidenceStale: Requirement.shape.solutions.element.shape.evidenceStale }).parse(JSON.parse(data))]))
-    return Requirement.parse({ ...requirement, solutions: requirement.solutions.map((solution) => ({ ...solution, ...evidence.get(solution.id) })) })
+    const prototypes = includePrototype
+      ? this.db.prepare('SELECT solution_id, html FROM requirement_prototypes WHERE requirement_id = ?').all(requirement.id)
+      : []
+    const htmlById = new Map(prototypes.map((item) => z.object({ solution_id: z.string(), html: z.string() }).parse(item))
+      .map(({ solution_id, html }) => [solution_id, html]))
+    return Requirement.parse({ ...requirement, solutions: requirement.solutions.map((solution) => ({
+      ...solution, ...evidence.get(solution.id), prototypeHtml: htmlById.get(solution.id)
+    })) })
   }
-  private withoutEvidence(requirement: Requirement): string {
-    return JSON.stringify({ ...requirement, solutions: requirement.solutions.map(({ evidence: _evidence, evidenceStale: _evidenceStale, ...solution }) => solution) })
+  private summaryJson(requirement: Requirement): string {
+    return JSON.stringify({ ...requirement, solutions: requirement.solutions.map(({ evidence: _evidence, evidenceStale: _evidenceStale, prototypeHtml: _prototypeHtml, ...solution }) => solution) })
   }
 }

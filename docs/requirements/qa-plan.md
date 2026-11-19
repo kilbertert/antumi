@@ -1,6 +1,6 @@
 # Requirements and solution slice
 
-This is the acceptance and verification home for the first SDLC slice. Audience:
+This is the acceptance and verification home for the SDLC workflow. Audience:
 implementers and the operator accepting this behavior. Source: the approved
 conversation scope (ZenTao entry, existing Agent/model selection, requirement
 owner confirmation with development input). No live company data belongs here.
@@ -8,8 +8,9 @@ owner confirmation with development input). No live company data belongs here.
 Scope: source import, immutable structured revisions, manually curated solution
 drafts, review records, stale-result detection and idempotent task handoff.
 Business project/version are labels in this slice, separate from repository
-paths. Automatic knowledge retrieval, prototypes and enterprise identities are
-later slices. Recording a confirmer's name is not authenticated authorization.
+paths. The prototype is a single self-contained HTML snapshot per solution.
+External prototype providers, automatic knowledge retrieval and enterprise
+identities are later slices. Recording a confirmer's name is not authenticated authorization.
 
 ## Cases
 
@@ -54,6 +55,15 @@ provider, synthetic issue and temporary repository. Never read real credentials.
 - R7 / compatibility: run typecheck, all tests and desktop build. Verify task
   imports, stores, protocol and source paths independently; no new RPC is allowed
   on phones or locked channel-tool connections. Test old cores without the feature.
+- R10 / prototype: save a synthetic solution and open its prototype request in
+  the standard Agent composer. Verify the saved design and evidence arrive
+  without sending. Paste a static HTML sample with inline CSS and a disclosure
+  control, preview it, reload before saving, save it and submit for review.
+  The same snapshot is visible in review and cannot be edited there. Include
+  a script, image URL and redirect in the fixture and verify that preview opens
+  no network connections to those resources. Simulate a legacy solution write
+  and reopen on new Core. Upgrade Core and desktop together to review prototypes.
+  Clean up the synthetic data and browser session.
 
 Store/service tests and integrated RPC tests execute R1-R4 and protocol gates.
 Evidence service tests execute R8 with temporary repositories and files.

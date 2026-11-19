@@ -1,4 +1,4 @@
-import { REQUIREMENT_ARCHITECTURE_PROMPT, requirementBrief, type RequirementService } from './requirement-service'
+import { type RequirementService } from './requirement-service'
 import { homedir } from 'node:os'
 import type { AgentProfileService } from './agent-profile-service'
 import type { AgentCliMaintenance } from './agent-cli-maintenance'
@@ -6,7 +6,7 @@ import { suggestForProject } from './project-config-suggest'
 import { EMPTY_BASELINE, type SmallModelStore } from './small-model-store'
 import { GitService } from './git-service'
 import type { GitFavoriteStore } from './git-favorite-store'
-import { SourceDeliveryInfo, untrustedSource, agentDescriptor, CORE_FEATURES, PROTOCOL_VERSION, type ChatItem, type PullRequestLink } from '@antumi/protocol'
+import { SourceDeliveryInfo, agentDescriptor, CORE_FEATURES, PROTOCOL_VERSION, type ChatItem, type PullRequestLink } from '@antumi/protocol'
 import packageJson from '../package.json' with { type: 'json' }
 import type { AgentRunStore } from './agent-run-store'
 import type { ChatTurnStore } from './chat-turn-store'
@@ -133,7 +133,7 @@ export function createRpcHandlers(
     if (!mobile) throw new Rejection('mobile-unavailable')
     return mobile
   }
-  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (feature !== 'requirements' || Boolean(requirements)) && (feature !== 'requirement-evidence' || Boolean(requirements?.evidenceSupported)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
+  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (!['requirements', 'requirement-prototypes'].includes(feature) || Boolean(requirements)) && (feature !== 'requirement-evidence' || Boolean(requirements?.evidenceSupported)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
   const channelService = (): ChannelService => {
     if (!channels) throw new Rejection('channels-unavailable')
     return channels
@@ -495,17 +495,7 @@ export function createRpcHandlers(
     'requirements.solution': (params) => requirementService().solution(params),
     'requirements.review': (params) => requirementService().review(params),
     'requirements.handoff': (params) => requirementService().handoff(params),
-    'requirements.context': async ({ id, version, evidence }) => {
-      const requirement = requirementService().get(id)
-      if (requirement.version !== version) throw new Rejection('requirement-conflict')
-      const revision = requirement.revisions.at(-1)!
-      const citations = await requirementService().context({ id, version, evidence })
-      const current = requirementService().get(id)
-      if (current.version !== version) throw new Rejection('requirement-conflict')
-      const text = `${REQUIREMENT_ARCHITECTURE_PROMPT}\n\n${requirementBrief(current, current.revisions.at(-1)!)}\n\n${untrustedSource(revision.source, revision.snapshot, [], 50_000)}${citations}`
-      if (text.length > 100_000) throw new Rejection('requirement-brief-too-long', '需求超过会话长度上限，请精简结构化字段')
-      return { text, projectPaths: revision.fields.repos, images: revision.snapshot.images }
-    },
+    'requirements.context': (params) => requirementService().context(params),
     'requirements.searchEvidence': (params) => requirementService().searchEvidence(params, searchFiles),
     'requirements.readEvidence': (params) => requirementService().readEvidence(params),
     'tasks.create': (params, connection) => {

@@ -1,10 +1,11 @@
 import { z } from 'zod'
-import { RequirementFields, RequirementEvidence } from '@antumi/protocol'
+import { RequirementFields, RequirementEvidence, RequirementPrototypeHtml } from '@antumi/protocol'
 
 const Draft = z.object({
   version: z.number().int().positive(), fields: RequirementFields,
   fieldsDirty: z.boolean(), solutionDirty: z.boolean(),
   solutionId: z.string().uuid().nullable(), markdown: z.string().max(50_000),
+  prototypeHtml: RequirementPrototypeHtml.optional(),
   feedback: z.string().max(10_000), confirmer: z.string().max(10_000), evidence: z.array(RequirementEvidence).max(20).default([]), query: z.string().max(200).default(''), file: z.string().nullable().default(null), excerpt: z.string().max(6_000).default('')
 })
 export type RequirementDraft = z.infer<typeof Draft>
