@@ -8,7 +8,10 @@ const MAX_MATCHES = 20
 const LISTING_TTL_MS = 5_000
 // A folder git does not know is walked, but only so far.
 const MAX_WALKED = 5_000
+const MAX_KNOWLEDGE_SEARCH_FILES = 300
+const KNOWLEDGE_SEARCH_CONCURRENCY = 8
 const UNWALKED = new Set(['node_modules'])
+type KnowledgeMatch = ProjectFileMatch & { kind: 'file' }
 
 // Files under these folders that a name refers to: the name as written, or the tail of a longer
 // path. Only what git knows or would add (tracked, or untracked and not ignored), so node_modules
@@ -55,6 +58,54 @@ export async function searchFiles(roots: readonly string[], query: string): Prom
     .map((each) => each.match)
     .filter((match) => !seen.has(match.path) && seen.add(match.path))
     .slice(0, MAX_FILE_MATCHES)
+}
+
+export async function searchKnowledgeFiles(roots: readonly string[], query: string, read: (roots: readonly string[], file: string) => Promise<{ text: string }>): Promise<{ matches: KnowledgeMatch[]; truncated: boolean }> {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return { matches: [], truncated: false }
+  const terms = needle.split(/\s+/u)
+  const indexed = await Promise.all(roots.map((root) => walkKnowledgeFiles(root)))
+  const files = indexed.flatMap(({ files }) => files)
+  const candidates: KnowledgeMatch[] = files.slice(0, MAX_KNOWLEDGE_SEARCH_FILES)
+  const ranked: Array<{ match: KnowledgeMatch; score: number }> = []
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(KNOWLEDGE_SEARCH_CONCURRENCY, candidates.length) }, async () => {
+    for (;;) {
+      const index = cursor++
+      const match = candidates[index]
+      if (!match) return
+      const file = await read(roots, match.path).catch(() => null)
+      if (!file) continue
+      const body = `${match.relative.toLocaleLowerCase()}\n${file.text.toLocaleLowerCase()}`
+      if (!terms.every((term) => body.includes(term))) continue
+      const score = terms.reduce((sum, term) => {
+        let count = 0
+        for (let at = body.indexOf(term); at !== -1 && count < 20; at = body.indexOf(term, at + term.length)) count++
+        return sum + count
+      }, 0)
+      ranked.push({ match, score })
+    }
+  })
+  await Promise.all(workers)
+  ranked.sort((a, b) => b.score - a.score || a.match.relative.localeCompare(b.match.relative))
+  return { matches: ranked.slice(0, 20).map(({ match }) => match), truncated: files.length > MAX_KNOWLEDGE_SEARCH_FILES || indexed.some((result) => result.truncated) }
+}
+
+async function walkKnowledgeFiles(root: string): Promise<{ files: KnowledgeMatch[]; truncated: boolean }> {
+  const files: KnowledgeMatch[] = []
+  const queue = ['']
+  let seen = 0
+  for (let folder = queue.shift(); folder !== undefined && seen < MAX_WALKED; folder = queue.shift()) {
+    const entries = await readdir(path.join(root, folder), { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || seen >= MAX_WALKED) continue
+      seen += 1
+      const relative = folder ? `${folder}/${entry.name}` : entry.name
+      if (entry.isDirectory()) queue.push(relative)
+      else if (entry.isFile() && /\.(md|markdown|mdx|txt)$/iu.test(entry.name)) files.push({ path: path.join(root, relative), root, relative, kind: 'file' })
+    }
+  }
+  return { files, truncated: queue.length > 0 }
 }
 
 function matchTier(relative: string, needle: string): number | null {

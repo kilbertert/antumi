@@ -14,7 +14,7 @@ import type { AttachmentStore } from './attachment-store'
 import type { AttachmentUploads } from './attachment-uploads'
 import type { BrowserService } from './browser-service'
 import type { SessionHost } from './daemon-client'
-import { findFiles, searchFiles } from './file-search'
+import { findFiles, searchFiles, searchKnowledgeFiles } from './file-search'
 import { ConversationFiles, fileScope } from './conversation-files'
 import { readCodexVisualization } from './agents/codex/codex-visualizations'
 import type { ProjectRegistry } from './project-registry'
@@ -133,7 +133,7 @@ export function createRpcHandlers(
     if (!mobile) throw new Rejection('mobile-unavailable')
     return mobile
   }
-  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (!['requirements', 'requirement-prototypes'].includes(feature) || Boolean(requirements)) && (feature !== 'requirement-evidence' || Boolean(requirements?.evidenceSupported)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
+  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (!['requirements', 'requirement-prototypes'].includes(feature) || Boolean(requirements)) && (feature !== 'requirement-evidence' || Boolean(requirements?.evidenceSupported)) && (feature !== 'requirement-knowledge-evidence' || Boolean(requirements?.knowledgeEvidenceSupported)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
   const channelService = (): ChannelService => {
     if (!channels) throw new Rejection('channels-unavailable')
     return channels
@@ -498,6 +498,8 @@ export function createRpcHandlers(
     'requirements.context': (params) => requirementService().context(params),
     'requirements.searchEvidence': (params) => requirementService().searchEvidence(params, searchFiles),
     'requirements.readEvidence': (params) => requirementService().readEvidence(params),
+    'requirements.searchKnowledge': (params) => requirementService().searchKnowledge(params, searchKnowledgeFiles),
+    'requirements.readKnowledge': (params) => requirementService().readKnowledge(params),
     'tasks.create': (params, connection) => {
       // A squad is set up on the computer, with the agent profiles it runs.
       if (connection.mobile && params.squadId) throw new Rejection('mobile-not-allowed', 'squads are set up on the computer')
@@ -537,14 +539,14 @@ export function createRpcHandlers(
     'conversations.get': ({ id }) => conversations.get(id),
     'conversations.configuration': ({ id }) => conversations.configuration(id),
     'conversations.helper': ({ id }) => conversations.helper(id),
-    'conversations.create': ({ agent, projectPaths, worktree, branch, allowBypass, permissionMode, model, effort, deferStart, helperOf, modelProvider, profileId }, connection) => {
+    'conversations.create': ({ agent, projectPaths, worktree, branch, allowBypass, permissionMode, model, effort, deferStart, helperOf, modelProvider, profileId, knowledgeBase }, connection) => {
       if (connection.mobile && (helperOf || profileId)) throw new Rejection('mobile-project-not-recent', 'pick a recent project')
       requireRecentForPhone(connection, projectPaths)
       const profile = profileId ? profileService().get(profileId) : undefined
       if (profile && (profile.agent !== agent || helperOf)) throw new Rejection('invalid-params', '智能体配置与会话不匹配')
       return conversations.create(agent, projectPaths, allowBypass, { permissionMode: profile?.capability === 'readOnly' ? agentDescriptor(agent).readOnlyMode : permissionMode,
         model: model ?? profile?.model ?? undefined, effort: effort ?? profile?.effort ?? undefined, worktree, branch, deferStart, helperOf,
-        modelProvider: profile?.modelProvider ?? modelProvider, profile })
+        modelProvider: profile?.modelProvider ?? modelProvider, profile, knowledgeBase })
     },
     'conversations.chatCatalog': ({ agent, modelProvider }) => conversations.chatCatalog(agent, modelProvider),
     'conversations.chatCatalogProblem': ({ agent }) => conversations.chatCatalogProblem(agent),

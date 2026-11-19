@@ -24,6 +24,7 @@ export function RequirementWorkspace({ initialId, onClose }: { initialId: string
   useOccludesBrowser()
   const rpc = useCore((state) => state.rpc)
   const evidenceSupported = useCore((state) => state.rpc?.features.includes('requirement-evidence') ?? false)
+  const knowledgeEvidenceSupported = useCore((state) => (state.rpc?.features.includes('requirement-knowledge-evidence') ?? false) && Boolean(state.chatSettings?.knowledgeBase?.path))
   const globalError = useCore((state) => state.error)
   const dialog = useRef<HTMLDialogElement>(null)
   const [items, setItems] = useState<Requirement[]>([])
@@ -73,12 +74,12 @@ export function RequirementWorkspace({ initialId, onClose }: { initialId: string
       </nav>
       {(error || globalError) && <p role="alert">{error || globalError}</p>}
       {changedElsewhere && <p role="status">{t('Requirements.changedElsewhere')} <button type="button" className="button" onClick={() => void load(selected)}>{t('Requirements.reload')}</button></p>}
-      {requirement && <RequirementEditor key={`${requirement.id}/${requirement.version}/${loadKey}`} requirement={requirement} evidenceSupported={evidenceSupported} onSave={saved} onDirty={(value) => { dirty.current = value }} onTask={() => onClose()} />}
+      {requirement && <RequirementEditor key={`${requirement.id}/${requirement.version}/${loadKey}`} requirement={requirement} evidenceSupported={evidenceSupported} knowledgeEvidenceSupported={knowledgeEvidenceSupported} onSave={saved} onDirty={(value) => { dirty.current = value }} onTask={() => onClose()} />}
     </div>
   </dialog>
 }
 
-function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, onTask }: { requirement: Requirement; evidenceSupported: boolean; onSave: (next: Requirement) => void; onDirty: (dirty: boolean) => void; onTask: () => void }) {
+function RequirementEditor({ requirement, evidenceSupported, knowledgeEvidenceSupported, onSave, onDirty, onTask }: { requirement: Requirement; evidenceSupported: boolean; knowledgeEvidenceSupported: boolean; onSave: (next: Requirement) => void; onDirty: (dirty: boolean) => void; onTask: () => void }) {
   const prototypeSupported = useCore((state) => state.rpc?.features.includes('requirement-prototypes') ?? false)
   const latest = requirement.revisions.at(-1)!
   const [revisionNumber, setRevisionNumber] = useState(latest.number)
@@ -95,10 +96,16 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
   const [feedback, setFeedback] = useState(draft?.feedback ?? '')
   const [confirmer, setConfirmer] = useState(draft?.confirmer ?? '')
   const [evidence, setEvidence] = useState<RequirementEvidence[]>(solutionDirty ? draft?.evidence ?? [] : solution?.evidence ?? [])
+  const [knowledgeEvidence, setKnowledgeEvidence] = useState(solutionDirty ? draft?.knowledgeEvidence ?? [] : solution?.knowledgeEvidence ?? [])
   const [query, setQuery] = useState(draft?.query ?? '')
+  const [knowledgeQuery, setKnowledgeQuery] = useState(draft?.knowledgeQuery ?? '')
   const [matches, setMatches] = useState<ProjectFileMatch[]>([])
+  const [knowledgeMatches, setKnowledgeMatches] = useState<ProjectFileMatch[]>([])
+  const [knowledgeSearchTruncated, setKnowledgeSearchTruncated] = useState(false)
   const [file, setFile] = useState<RequirementEvidenceFile | null>(null)
   const [excerpt, setExcerpt] = useState(draft?.excerpt ?? '')
+  const [knowledgeFile, setKnowledgeFile] = useState<RequirementEvidenceFile | null>(null)
+  const [knowledgeExcerpt, setKnowledgeExcerpt] = useState(draft?.knowledgeExcerpt ?? '')
   const [previewPath, setPreviewPath] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [viewing, setViewing] = useState<number | null>(null)
@@ -112,19 +119,26 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
     })
   }, [draft?.file, editable, evidenceSupported])
   useEffect(() => {
-    const dirty = fieldsDirty || solutionDirty || Boolean(feedback || confirmer || file || excerpt)
+    if (!draft?.knowledgeFile || !editable || !knowledgeEvidenceSupported) return
+    void perform((rpc) => rpc.call('requirements.readKnowledge', { ...ref, path: draft.knowledgeFile! })).then((found) => {
+      if (found) setKnowledgeFile(found)
+    })
+  }, [draft?.knowledgeFile, editable, knowledgeEvidenceSupported])
+  useEffect(() => {
+    const dirty = fieldsDirty || solutionDirty || Boolean(feedback || confirmer || file || excerpt || knowledgeFile || knowledgeExcerpt)
     onDirty(dirty)
-    if (dirty || file || excerpt || evidence.length) keepRequirementDraft(requirement.id, { version: draft?.version ?? requirement.version, fields, fieldsDirty,
-      solutionDirty, solutionId, markdown, prototypeHtml, feedback, confirmer, evidence, query, file: file?.path ?? null, excerpt })
-  }, [fields, fieldsDirty, solutionDirty, solutionId, markdown, prototypeHtml, feedback, confirmer, evidence, query, file, excerpt])
+    if (dirty || file || excerpt || evidence.length || knowledgeEvidence.length) keepRequirementDraft(requirement.id, { version: draft?.version ?? requirement.version, fields, fieldsDirty,
+      solutionDirty, solutionId, markdown, prototypeHtml, feedback, confirmer, evidence, knowledgeEvidence, query, knowledgeQuery, file: file?.path ?? null, excerpt,
+      knowledgeFile: knowledgeFile?.path ?? null, knowledgeExcerpt })
+  }, [fields, fieldsDirty, solutionDirty, solutionId, markdown, prototypeHtml, feedback, confirmer, evidence, knowledgeEvidence, query, knowledgeQuery, file, excerpt, knowledgeFile, knowledgeExcerpt])
   const act = async (action: () => Promise<Requirement | null>) => {
     if (pending.current) return
     pending.current = true; setBusy(true)
     try { const next = await action(); if (next) onSave(next) } finally { pending.current = false; setBusy(false) }
   }
   const ref = { id: requirement.id, version: draft?.version ?? requirement.version }
-  const showRevision = (number: number) => { setViewing(null); setRevisionNumber(number); setFields(requirement.revisions.find((each) => each.number === number)!.fields); const choice = requirement.solutions.filter((each) => each.revision === number).at(-1); setSolutionId(choice?.id ?? null); setMarkdown(choice?.markdown ?? ''); setPrototypeHtml(choice?.prototypeHtml ?? ''); setEvidence(choice?.evidence ?? []); setSolutionDirty(false) }
-  const chooseSolution = (id: string) => { const choice = requirement.solutions.find((each) => each.id === id); setSolutionId(choice?.id ?? null); setMarkdown(choice?.markdown ?? ''); setPrototypeHtml(choice?.prototypeHtml ?? ''); setEvidence(choice?.evidence ?? []); setFile(null); setExcerpt(''); setSolutionDirty(false) }
+  const showRevision = (number: number) => { setViewing(null); setRevisionNumber(number); setFields(requirement.revisions.find((each) => each.number === number)!.fields); const choice = requirement.solutions.filter((each) => each.revision === number).at(-1); setSolutionId(choice?.id ?? null); setMarkdown(choice?.markdown ?? ''); setPrototypeHtml(choice?.prototypeHtml ?? ''); setEvidence(choice?.evidence ?? []); setKnowledgeEvidence(choice?.knowledgeEvidence ?? []); setSolutionDirty(false) }
+  const chooseSolution = (id: string) => { const choice = requirement.solutions.find((each) => each.id === id); setSolutionId(choice?.id ?? null); setMarkdown(choice?.markdown ?? ''); setPrototypeHtml(choice?.prototypeHtml ?? ''); setEvidence(choice?.evidence ?? []); setKnowledgeEvidence(choice?.knowledgeEvidence ?? []); setFile(null); setExcerpt(''); setKnowledgeFile(null); setKnowledgeExcerpt(''); setSolutionDirty(false) }
   const searchEvidence = async () => {
     const found = await perform((rpc) => rpc.call('requirements.searchEvidence', { ...ref, query }))
     if (found) setMatches(found)
@@ -133,10 +147,23 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
     const found = await perform((rpc) => rpc.call('requirements.readEvidence', { ...ref, path: match.path }))
     if (found) { setFile(found); setPreviewPath(found.path); setExcerpt('') }
   }
+  const searchKnowledge = async () => {
+    const found = await perform((rpc) => rpc.call('requirements.searchKnowledge', { ...ref, query: knowledgeQuery }))
+    if (found) { setKnowledgeMatches(found.matches); setKnowledgeSearchTruncated(found.truncated) }
+  }
+  const previewKnowledge = async (match: ProjectFileMatch) => {
+    const found = await perform((rpc) => rpc.call('requirements.readKnowledge', { ...ref, path: match.path }))
+    if (found) { setKnowledgeFile(found); setKnowledgeExcerpt('') }
+  }
   const addEvidence = () => {
     if (!file || evidence.length >= 20 || !excerpt.trim() || !file.text.includes(excerpt.trim()) || evidence.some((item) => item.path === file.path && item.excerpt === excerpt.trim())) return
     setEvidence([...evidence, { path: file.path, project: file.project, relative: file.relative, excerpt: excerpt.trim(), mtimeMs: file.mtimeMs, checkedAt: file.checkedAt, sha256: file.sha256 }])
     setSolutionDirty(true); onDirty(true); setExcerpt('')
+  }
+  const addKnowledgeEvidence = () => {
+    if (!knowledgeFile || evidence.length + knowledgeEvidence.length >= 20 || !knowledgeExcerpt.trim() || !knowledgeFile.text.includes(knowledgeExcerpt.trim()) || knowledgeEvidence.some((item) => item.path === knowledgeFile.path && item.excerpt === knowledgeExcerpt.trim())) return
+    setKnowledgeEvidence([...knowledgeEvidence, { path: knowledgeFile.path, project: knowledgeFile.project, relative: knowledgeFile.relative, excerpt: knowledgeExcerpt.trim(), mtimeMs: knowledgeFile.mtimeMs, checkedAt: knowledgeFile.checkedAt, sha256: knowledgeFile.sha256 }])
+    setSolutionDirty(true); onDirty(true); setKnowledgeExcerpt('')
   }
   const recheckEvidence = async (item: RequirementEvidence) => {
     const found = await perform((rpc) => rpc.call('requirements.readEvidence', { ...ref, path: item.path }))
@@ -150,7 +177,7 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
   const analyze = async (prototypeFor?: string) => {
     if (pending.current) return
     pending.current = true; setBusy(true)
-    const context = await perform((rpc) => rpc.call('requirements.context', { ...ref, ...(prototypeFor ? { prototypeFor } : evidenceSupported ? { evidence } : {}) }))
+    const context = await perform((rpc) => rpc.call('requirements.context', { ...ref, ...(prototypeFor ? { prototypeFor } : { ...(evidenceSupported ? { evidence } : {}), ...(knowledgeEvidenceSupported ? { knowledgeEvidence } : {}) }) }))
     if (!context) { pending.current = false; setBusy(false); return }
     // Keep one composer per requirement version so a new request cannot append to another project's draft.
     const key = 'requirement:' + ref.id + '/' + ref.version + '/' +
@@ -199,6 +226,14 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
       {file && <div className="requirement-evidence-preview"><strong>{file.relative}</strong><pre>{file.text.slice(0, 12_000)}</pre><label>{t('Requirements.excerpt')}<textarea className="input" aria-label={t('Requirements.excerpt')} value={excerpt} maxLength={6_000} onChange={(event) => setExcerpt(event.target.value)} /></label><button type="button" className="button" disabled={evidence.length >= 20 || !excerpt.trim() || !file.text.includes(excerpt.trim())} onClick={addEvidence}>{t('Requirements.addEvidence')}</button></div>}
       {evidence.map((item) => <div className="requirement-evidence-item" key={item.path + item.excerpt}><span>{item.relative}</span><blockquote>{item.excerpt}</blockquote>{editable && <><button type="button" className="button ghost" onClick={() => void recheckEvidence(item)}>{t('Requirements.recheckEvidence')}</button><button type="button" className="button ghost" onClick={() => { setEvidence(evidence.filter((each) => each !== item)); setSolutionDirty(true); onDirty(true) }}>{t('Requirements.removeEvidence')}</button></>}</div>)}
     </section>}
+    {knowledgeEvidenceSupported && <section className="requirement-evidence" aria-label={t('Requirements.knowledgeEvidence')}>
+      <h4>{t('Requirements.knowledgeEvidence')}</h4>
+      {editable && <div className="requirement-evidence-search"><input className="input" aria-label={t('Requirements.searchKnowledge')} value={knowledgeQuery} onChange={(event) => setKnowledgeQuery(event.target.value)} /><button type="button" className="button" disabled={busy} onClick={() => void searchKnowledge()}><SearchIcon />{t('Requirements.searchKnowledge')}</button></div>}
+      {knowledgeMatches.map((match) => <button className="button" type="button" key={match.path} disabled={busy} onClick={() => void previewKnowledge(match)}>{match.relative}</button>)}
+      {knowledgeSearchTruncated && <p className="muted">{t('Requirements.knowledgeSearchTruncated')}</p>}
+      {knowledgeFile && <div className="requirement-evidence-preview"><strong>{knowledgeFile.relative}</strong><pre>{knowledgeFile.text.slice(0, 12_000)}</pre>{editable && <><label>{t('Requirements.excerpt')}<textarea className="input" aria-label={t('Requirements.knowledgeExcerpt')} value={knowledgeExcerpt} maxLength={6_000} onChange={(event) => setKnowledgeExcerpt(event.target.value)} /></label><button type="button" className="button" disabled={evidence.length + knowledgeEvidence.length >= 20 || !knowledgeExcerpt.trim() || !knowledgeFile.text.includes(knowledgeExcerpt.trim())} onClick={addKnowledgeEvidence}>{t('Requirements.addEvidence')}</button></>}</div>}
+      {knowledgeEvidence.map((item) => <div className="requirement-evidence-item" key={item.path + item.excerpt}><span>{item.relative}</span><blockquote>{item.excerpt}</blockquote>{editable && <button type="button" className="button ghost" onClick={() => { setKnowledgeEvidence(knowledgeEvidence.filter((each) => each !== item)); setSolutionDirty(true); onDirty(true) }}>{t('Requirements.removeEvidence')}</button>}</div>)}
+    </section>}
     {solution?.evidenceStale && <p role="alert">{t('Requirements.evidenceChanged')}</p>}
     {solution && solution.revision !== latest.number && <p role="status">{t('Requirements.stale')}</p>}
     <MarkdownEditor key={`${solutionId ?? 'new'}/${editable}/${fieldsDirty}/${Boolean(feedback || confirmer)}`} value={markdown} label={t('Requirements.solution')} hint={t('Requirements.solutionHint')} readOnly={!editable || fieldsDirty || Boolean(feedback || confirmer)} onChange={(value) => { setMarkdown(value); setSolutionDirty(true); onDirty(true) }} />
@@ -211,7 +246,7 @@ function RequirementEditor({ requirement, evidenceSupported, onSave, onDirty, on
       onRequest={editable && solution?.markdown && !solutionDirty ? () => void analyze(solution.id) : undefined} />}
     {!prototypeSupported && solutionDirty && prototypeHtml !== (solution?.prototypeHtml ?? '') &&
       <p role="status">{t('Requirements.prototypeNeedsCore')}</p>}
-    {editable && <button type="button" className="button" disabled={busy || fieldsDirty || Boolean(feedback || confirmer) || (!prototypeSupported && prototypeHtml !== (solution?.prototypeHtml ?? ''))} onClick={() => void act(() => perform((rpc) => rpc.call('requirements.solution', { ...ref, ...(solutionId ? { solutionId } : {}), markdown, ...(evidenceSupported ? { evidence } : {}), ...(prototypeSupported && prototypeHtml !== (solution?.prototypeHtml ?? '') ? { prototypeHtml } : {}) })))}>{t('Requirements.saveSolution')}</button>}
+    {editable && <button type="button" className="button" disabled={busy || fieldsDirty || Boolean(feedback || confirmer) || (!prototypeSupported && prototypeHtml !== (solution?.prototypeHtml ?? ''))} onClick={() => void act(() => perform((rpc) => rpc.call('requirements.solution', { ...ref, ...(solutionId ? { solutionId } : {}), markdown, ...(evidenceSupported ? { evidence } : {}), ...(knowledgeEvidenceSupported ? { knowledgeEvidence } : {}), ...(prototypeSupported && prototypeHtml !== (solution?.prototypeHtml ?? '') ? { prototypeHtml } : {}) })))}>{t('Requirements.saveSolution')}</button>}
     {solution?.reviews.map((review, index) => <p key={index}>{t(`Requirements.${review.decision}`)} · {review.confirmer} · {dayAndTime(review.createdAt)}<br />{review.feedback}</p>)}
     {solution && !historical && <div className="requirement-review">
       {solution.status === 'review' && solution.revision === latest.number && <>

@@ -593,7 +593,7 @@ export class ConversationService {
     agent: AgentKind,
     projectPaths: readonly string[],
     allowBypass?: boolean,
-    start: { permissionMode?: string; model?: string; effort?: string; worktree?: boolean; branch?: string; deferStart?: boolean; helperOf?: string; modelProvider?: string; profile?: AgentProfile; parentId?: string; callId?: string; readOnly?: boolean; referencePaths?: readonly string[]; unlisted?: boolean; investigation?: { source: TaskSource; title: string; automaticId?: string } ; channel?: ConversationChannel; title?: string } = {},
+    start: { permissionMode?: string; model?: string; effort?: string; worktree?: boolean; branch?: string; deferStart?: boolean; helperOf?: string; modelProvider?: string; profile?: AgentProfile; parentId?: string; callId?: string; readOnly?: boolean; referencePaths?: readonly string[]; unlisted?: boolean; investigation?: { source: TaskSource; title: string; automaticId?: string } ; channel?: ConversationChannel; title?: string; knowledgeBase?: boolean } = {},
     routine: { id: string; title: string } | null = null,
     id: string = randomUUID(),
     discussion: { id: string; title: string } | null = null,
@@ -662,6 +662,7 @@ export class ConversationService {
     }
     const created = this.store.create(agent, workspace, projects, id, starts, null, routine, discussion, null, start.investigation ?? null)
     if (start.modelProvider) this.store.setModelProvider(id, start.modelProvider)
+    if (start.knowledgeBase !== undefined) this.store.setChatOptions(id, { knowledgeBase: start.knowledgeBase })
     if (start.profile) this.store.setProfile(id, start.profile, start.parentId ?? null, start.callId ?? null)
     if (start.readOnly || start.profile?.capability === 'readOnly' || start.channel) this.store.setWorkspaceReadOnly(id, true)
     if (start.channel) this.store.setChannel(id, start.channel)
@@ -1309,7 +1310,7 @@ export class ConversationService {
       this.store.deleteStage(stage.id)
       throw new Rejection('agent-no-lockdown', `${agentDescriptor(agent).label} cannot answer from a chat platform`)
     }
-    const knowledgeBase = locked ? undefined : await this.stageKnowledgeBase(current, stage)
+    const knowledgeBase = locked || this.store.chatOptions(current.id).knowledgeBase === false ? undefined : await this.stageKnowledgeBase(current, stage)
     const skills = locked ? null : await this.skillsFor?.(agent, current.profile?.skills).catch((error: unknown) => {
       this.wire?.record(id, stage.id, [{ dir: 'note', text: JSON.stringify({ event: 'skills-unavailable', error: error instanceof Error ? error.message : String(error) }) }])
       return null

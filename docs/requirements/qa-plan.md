@@ -6,7 +6,8 @@ conversation scope (ZenTao entry, existing Agent/model selection, requirement
 owner confirmation with development input). No live company data belongs here.
 
 Scope: source import, immutable structured revisions, manually curated solution
-drafts, review records, stale-result detection and idempotent task handoff.
+drafts, review records, selected project and configured knowledge-base evidence,
+stale-result detection and idempotent task handoff.
 Business project/version are labels in this slice, separate from repository
 paths. The prototype is a single self-contained HTML snapshot per solution.
 External prototype providers, automatic knowledge retrieval and enterprise
@@ -64,9 +65,21 @@ provider, synthetic issue and temporary repository. Never read real credentials.
   no network connections to those resources. Simulate a legacy solution write
   and reopen on new Core. Upgrade Core and desktop together to review prototypes.
   Clean up the synthetic data and browser session.
+- R11 / knowledge evidence: configure a temporary Markdown knowledge base and add
+  a synthetic document; search by words in its content, preview it, select a
+  verbatim quote and save it with a project quote. Expect the knowledge-base
+  relative path and file revision in the solution, Agent context and handed-off
+  task, with both quotes marked untrusted. Change the knowledge document before
+  save, review and handoff; expect each stale quote to block the action. Search
+  and preview must stay inside the configured knowledge root, including when a
+  symlink points outside it. Verify unselected knowledge files and the knowledge
+  directory itself are absent from Agent context and project paths. Repeat with
+  no configured knowledge base and with an Obsidian-kind folder. Clean up the
+  temporary database, repo and knowledge folder.
 
 Store/service tests and integrated RPC tests execute R1-R4 and protocol gates.
-Evidence service tests execute R8 with temporary repositories and files.
+Evidence service tests execute R8 and R11 with temporary repositories, knowledge
+folders and files.
 Desktop interaction evidence for R5-R6 must be reported separately from tests;
 R9 prompt checks run with the core suite and verify the architecture output sections;
 headless Chromium interaction covers the renderer with a test preload bridge,

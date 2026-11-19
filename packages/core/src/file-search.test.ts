@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { findFiles, searchFiles } from './file-search'
+import { findFiles, searchFiles, searchKnowledgeFiles } from './file-search'
 
 describe('findFiles', () => {
   let root: string
@@ -84,5 +84,29 @@ describe('searchFiles', () => {
     } finally {
       rmSync(plain, { recursive: true, force: true })
     }
+  })
+})
+
+describe('searchKnowledgeFiles', () => {
+  let root: string
+  beforeEach(() => { root = mkdtempSync(path.join(os.tmpdir(), 'antumi-search-knowledge-')) })
+  afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+  it('finds terms in Markdown bodies rather than only file names', async () => {
+    writeFileSync(path.join(root, 'operations.md'), '# Store operations\nUse the existing payment boundary.')
+    writeFileSync(path.join(root, 'unrelated.txt'), 'employee personal note')
+    writeFileSync(path.join(root, '.private.md'), 'payment boundary')
+    const read = async (_roots: readonly string[], file: string) => ({ text: await import('node:fs/promises').then(({ readFile }) => readFile(file, 'utf8')) })
+    const result = await searchKnowledgeFiles([root], 'payment boundary', read)
+    expect(result).toEqual({ matches: [{ path: path.join(root, 'operations.md'), root, relative: 'operations.md', kind: 'file' }], truncated: false })
+  })
+
+  it('limits content reads to the documented candidate bound', async () => {
+    for (let index = 0; index < 305; index++) writeFileSync(path.join(root, `note-${index}.md`), 'needle')
+    let reads = 0
+    const result = await searchKnowledgeFiles([root], 'needle', async () => { reads++; return { text: 'needle' } })
+    expect(result.truncated).toBe(true)
+    expect(reads).toBe(300)
+    expect(result.matches).toHaveLength(20)
   })
 })

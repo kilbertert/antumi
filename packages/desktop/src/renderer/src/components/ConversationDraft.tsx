@@ -187,7 +187,8 @@ export function ConversationDraft() {
   const chosen = {
     ...(optionsSupported ? { permissionMode: mode ?? undefined, ...(pick.model ? { model: pick.model } : {}), ...(effort ? { effort } : {}) } : {}),
     ...(provider ? { modelProvider: provider.id } : {}),
-    ...(profile ? { profileId: profile.id } : {})
+    ...(profile ? { profileId: profile.id } : {}),
+    ...(analysis ? { knowledgeBase: false } : {})
   }
   // A start on a provider spends its plan, not the agent's own quota.
   const quotaAllows = async (kind: AgentKind) => providerOf(kind) !== null || confirmQuota(kind, modelFor(kind))
