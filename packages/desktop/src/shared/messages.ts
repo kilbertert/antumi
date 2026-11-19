@@ -1,5 +1,15 @@
 // Application-owned text. Values and external content are passed separately.
 export const MESSAGES = {
+  "Requirements.evidence": {"zh": "项目依据", "en": "Project evidence"},
+  "Requirements.searchEvidence": {"zh": "搜索关联项目文件", "en": "Search linked project files"},
+  "Requirements.excerpt": {"zh": "引用原文片段", "en": "Quote an exact excerpt"},
+  "Requirements.addEvidence": {"zh": "加入方案依据", "en": "Add as solution evidence"},
+  "Requirements.removeEvidence": {"zh": "移除引用", "en": "Remove citation"},
+  "Requirements.recheckEvidence": {"zh": "重新检查引用", "en": "Recheck citation"},
+  "Requirements.evidenceChanged": {"zh": "引用依据已变化，重新检查并保存方案后才能提交评审或交接。", "en": "Evidence changed. Recheck and save the solution before review or handoff."},
+  "Requirements.evidenceLimit": {"zh": "一个方案最多引用 20 段项目依据。", "en": "A solution can cite at most 20 project excerpts."},
+  "Requirements.evidenceDuplicate": {"zh": "同一段原文不能重复引用。", "en": "The same excerpt cannot be cited twice."},
+  "Requirements.projectRequired": {"zh": "请先关联至少一个代码项目。", "en": "Link at least one code project first."},
   "Requirements.restoredStale": {"zh": "恢复的编辑基于旧版本，无法覆盖新版本。请复制编辑内容，再重新加载。", "en": "Restored edits use an older version and cannot overwrite the latest one. Copy your edits before reloading."},
   "Requirements.reviewRequired": {"zh": "请先提交方案评审。", "en": "Submit the solution for review first."},
   "Requirements.notEditable": {"zh": "评审中或已采纳的方案不能覆盖，请新建草稿。", "en": "Reviewed or accepted solutions cannot be overwritten. Create a new draft."},

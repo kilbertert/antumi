@@ -11,3 +11,8 @@
 .requirement-editor .toolbar { flex-wrap: wrap; }
 .requirement-editor .cm-editor { min-height: 160px; border: 1px solid var(--border); border-radius: var(--radius); }
 .requirement-review { display: flex; flex-direction: column; gap: 16px; }
+.requirement-evidence { display: flex; flex-direction: column; gap: 8px; }
+.requirement-evidence-search { display: flex; gap: 8px; }
+.requirement-evidence-preview pre { max-height: 220px; overflow: auto; white-space: pre-wrap; background: var(--fill); padding: 12px; border-radius: var(--radius-sm); }
+.requirement-evidence-item { border-left: 2px solid var(--border-2); padding-left: 12px; }
+.requirement-evidence-item blockquote { margin: 4px 0; color: var(--text-muted); white-space: pre-wrap; }
