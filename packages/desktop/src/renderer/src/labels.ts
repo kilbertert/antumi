@@ -74,6 +74,17 @@ export function pullRequestBlockerText(eligibility: Pick<PullRequestEligibility,
 }
 
 const REASON_TEXT: Record<string, string> = localized(() => ({
+  'requirement-evidence-changed': t('Requirements.evidenceChanged'),
+  'requirement-evidence-limit': t('Requirements.evidenceLimit'),
+  'requirement-evidence-duplicate': t('Requirements.evidenceDuplicate'),
+  'requirement-project-required': t('Requirements.projectRequired'),
+  'requirement-evidence-unavailable': t('Requirements.projectRequired'),
+  'requirement-stale': t('Requirements.stale'),
+  'requirement-incomplete': t('Requirements.incomplete'),
+  'solution-not-reviewing': t('Requirements.reviewRequired'),
+  'solution-not-editable': t('Requirements.notEditable'),
+  'solution-not-accepted': t('Requirements.acceptRequired'),
+  'review-feedback-required': t('Requirements.feedbackRequired'),
   'dsh-cli-missing': t('Readiness.missing'),
   'dsh-version-incompatible': agentDescriptor('dsh', getLocale()).environment.outdated?.status ?? t('Readiness.incompatible-version'),
   'dsh-runtime-install-failed': t('labels.dshRuntimeInstallFailed'),

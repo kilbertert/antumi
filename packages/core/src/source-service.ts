@@ -455,6 +455,27 @@ export class SourceService {
     return this.track(id, () => done)
   }
 
+  requirementBinding(id: string, instance: string): string {
+    if (id !== 'zentao') throw new Rejection('requirement-source-unsupported', '首版从禅道导入需求')
+    const ready = this.requireReady(id, instance)
+    const sites = ready.provider.settings.filter((field) => field.bindsCredential).map((field) => [field.key, ready.settings[field.key]])
+    return createHash('sha256').update(JSON.stringify([id, instance, sites])).digest('hex')
+  }
+
+  requirementSnapshot(id: string, instance: string, rawKey: string): Promise<{ source: TaskSource; snapshot: SourceSnapshot; binding: string }> {
+    if (id !== 'zentao') return Promise.reject(new Rejection('requirement-source-unsupported', '首版从禅道导入需求'))
+    return this.track(id, async () => {
+      const check = this.guard(id, instance)
+      const ready = this.requireReady(id, instance)
+      const binding = this.requirementBinding(id, instance)
+      const key = await this.checkedKey(ready.provider, rawKey)
+      check()
+      const detail = await this.fetch(ready, key, this.state(id, instance).controller.signal)
+      check()
+      return { binding, source: { provider: id, instance, name: ready.provider.name, key: detail.issue.key, title: detail.issue.title, url: detail.issue.url }, snapshot: detail.snapshot }
+    })
+  }
+
   issue(id: string, instance: string, rawKey: string, images = false): Promise<SourceIssuePreview> {
     return this.track(id, async () => {
       const check = this.guard(id, instance)

@@ -62,6 +62,7 @@ export function ConversationDraft() {
   const [projectPaths, setProjectPaths] = useState<string[]>(() => [...(carry?.projects ?? requested?.paths ?? [])])
   useEffect(() => { if (requested) setProjectPaths([...requested.paths]) }, [requested])
   const investigateSupported = useSourceInvestigateSupported()
+  const analysis = useCore((state) => state.conversationDraftAnalysis)
   const draftIssue = useCore((s) => s.conversationDraftIssue)
   const issue = investigateSupported ? draftIssue : null
   const [worktree, setWorktree] = useState(false)
@@ -153,9 +154,9 @@ export function ConversationDraft() {
   const efforts = model?.efforts ?? []
   // A mode the model or settings no longer allow falls back to that agent's available default.
   const offeredModes = agent ? startModes(agent, model) : []
-  const chosenMode = agent ? modes[agent] ?? (issue ? undefined : remembered?.mode) : undefined
+  const chosenMode = agent ? modes[agent] ?? (issue || analysis ? undefined : remembered?.mode) : undefined
   const investigationModes = usePreferences((s) => s.investigationModes)
-  const reading = agent && issue ? investigationMode(agent, offeredModes, investigationModes[agent]) : null
+  const reading = agent && (issue || analysis) ? investigationMode(agent, offeredModes, analysis ? undefined : investigationModes[agent]) : null
   const mode = profile?.capability === 'readOnly' && agent ? agentDescriptor(agent).readOnlyMode : agent ? (chosenMode && offeredModes.includes(chosenMode) ? chosenMode : reading ?? defaultStartMode(agent, offeredModes)) : null
   const effort = pick.effort && (!catalog || efforts.includes(pick.effort)) ? pick.effort : null
   const settingsLoading = Boolean(initial && agent && optionsSupported && catalog === undefined)

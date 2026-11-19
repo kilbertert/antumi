@@ -1,0 +1,9 @@
+# Windows-native Antumi test builds. Host identity and SSH access are managed outside this repository.
+[[targets]]
+name = "test-windows"
+host = "windows-rl1"
+description = "Build Antumi Windows test installers for the operator"
+
+[targets.paths]
+downloads = "C:/Users/q1234/Downloads"
+build = "C:/Users/q1234/antumi-sdlc-build"
