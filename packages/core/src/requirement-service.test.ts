@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -27,10 +28,10 @@ describe('requirement to development task', () => {
   const prepare = async () => {
     let requirement = await imported()
     requirement = await service.revise({ ...ref(requirement), fields: fields() })
-    requirement = service.solution({ ...ref(requirement), markdown: '复用查询接口；验证权限和空结果。' })
+    requirement = await service.solution({ ...ref(requirement), markdown: '复用查询接口；验证权限和空结果。' })
     const solutionId = requirement.solutions[0]!.id
-    requirement = service.review({ ...ref(requirement), solutionId, action: 'submit' })
-    requirement = service.review({ ...ref(requirement), solutionId, action: 'accepted', confirmer: '产品', feedback: '研发确认接口可以复用' })
+    requirement = await service.review({ ...ref(requirement), solutionId, action: 'submit' })
+    requirement = await service.review({ ...ref(requirement), solutionId, action: 'accepted', confirmer: '产品', feedback: '研发确认接口可以复用' })
     return { requirement, solutionId }
   }
   beforeEach(() => {
@@ -56,6 +57,9 @@ describe('requirement to development task', () => {
     store.close()
     store = new RequirementStore(path.join(root, 'antumi.db'))
     expect(store.get(initial.id)).toEqual(updated)
+    store.close()
+    store = new RequirementStore(path.join(root, 'antumi.db'))
+    expect(store.get(initial.id)).toEqual(updated)
     expect(store.list()).toHaveLength(1)
   })
   it('rejects concurrent writes without losing the saved revision (R2)', async () => {
@@ -66,20 +70,20 @@ describe('requirement to development task', () => {
   })
   it('cannot submit incomplete requirements or accept without a recorded owner confirmation', async () => {
     let requirement = await imported()
-    requirement = service.solution({ ...ref(requirement), markdown: '方案' })
+    requirement = await service.solution({ ...ref(requirement), markdown: '方案' })
     const solutionId = requirement.solutions[0]!.id
-    expect(() => service.review({ ...ref(requirement), solutionId, action: 'submit' })).toThrow(expect.objectContaining({ reason: 'requirement-incomplete' }))
+    await expect(service.review({ ...ref(requirement), solutionId, action: 'submit' })).rejects.toMatchObject({ reason: 'requirement-incomplete' })
     requirement = await service.revise({ ...ref(requirement), fields: fields() })
-    requirement = service.solution({ ...ref(requirement), markdown: '方案' })
+    requirement = await service.solution({ ...ref(requirement), markdown: '方案' })
     const currentId = requirement.solutions.at(-1)!.id
-    requirement = service.review({ ...ref(requirement), solutionId: currentId, action: 'submit' })
-    expect(() => service.review({ ...ref(requirement), solutionId: currentId, action: 'accepted', confirmer: '其他人' })).toThrow(expect.objectContaining({ reason: 'requirement-owner-confirmation' }))
-    expect(() => service.solution({ ...ref(requirement), solutionId: currentId, markdown: '覆盖' })).toThrow(expect.objectContaining({ reason: 'solution-not-editable' }))
+    requirement = await service.review({ ...ref(requirement), solutionId: currentId, action: 'submit' })
+    await expect(service.review({ ...ref(requirement), solutionId: currentId, action: 'accepted', confirmer: '其他人' })).rejects.toMatchObject({ reason: 'requirement-owner-confirmation' })
+    await expect(service.solution({ ...ref(requirement), solutionId: currentId, markdown: '覆盖' })).rejects.toMatchObject({ reason: 'solution-not-editable' })
   })
   it('creates the same pending task on repeated handoff and preserves its source (R3)', async () => {
     const { requirement, solutionId } = await prepare()
-    const task = service.handoff({ ...ref(requirement), solutionId })
-    expect(service.handoff({ ...ref(requirement), solutionId })).toEqual(task)
+    const task = await service.handoff({ ...ref(requirement), solutionId })
+    expect(await service.handoff({ ...ref(requirement), solutionId })).toEqual(task)
     expect(tasks.list()).toHaveLength(1)
     expect(task).toMatchObject({ status: 'pending', agent: null, conversationId: null, source, sourceSnapshot: snapshot })
     expect(task.details).toContain('研发确认接口可以复用')
@@ -92,7 +96,7 @@ describe('requirement to development task', () => {
     const { requirement, solutionId } = await prepare()
     const next = await service.revise({ ...ref(requirement), fields: { ...fields(), scope: '多门店' } })
     expect(next.solutions[0]).toEqual(requirement.solutions[0])
-    expect(() => service.handoff({ ...ref(next), solutionId })).toThrow(expect.objectContaining({ reason: 'requirement-stale' }))
+    await expect(service.handoff({ ...ref(next), solutionId })).rejects.toMatchObject({ reason: 'requirement-stale' })
     expect(tasks.list()).toEqual([])
     expect(requirementBrief(next, next.revisions.at(-1)!)).toContain('修订 3')
   })
@@ -108,13 +112,65 @@ describe('requirement to development task', () => {
   it('retains feedback when returning a solution for changes', async () => {
     let requirement = await imported()
     requirement = await service.revise({ ...ref(requirement), fields: fields() })
-    requirement = service.solution({ ...ref(requirement), markdown: 'draft' })
+    requirement = await service.solution({ ...ref(requirement), markdown: 'draft' })
     const solutionId = requirement.solutions[0]!.id
-    requirement = service.review({ ...ref(requirement), solutionId, action: 'submit' })
-    expect(() => service.review({ ...ref(requirement), solutionId, action: 'changes', confirmer: '产品' })).toThrow(expect.objectContaining({ reason: 'review-feedback-required' }))
-    requirement = service.review({ ...ref(requirement), solutionId, action: 'changes', confirmer: '产品', feedback: '需要权限说明' })
-    requirement = service.solution({ ...ref(requirement), solutionId, markdown: '补齐权限' })
+    requirement = await service.review({ ...ref(requirement), solutionId, action: 'submit' })
+    await expect(service.review({ ...ref(requirement), solutionId, action: 'changes', confirmer: '产品' })).rejects.toMatchObject({ reason: 'review-feedback-required' })
+    requirement = await service.review({ ...ref(requirement), solutionId, action: 'changes', confirmer: '产品', feedback: '需要权限说明' })
+    requirement = await service.solution({ ...ref(requirement), solutionId, markdown: '补齐权限' })
     expect(requirement.solutions[0]!.reviews[0]!.feedback).toBe('需要权限说明')
+  })
+
+  it('rejects unlinked and changed project evidence', async () => {
+    const requirement = await imported()
+    const base = await service.revise({ ...ref(requirement), fields: fields() })
+    const solution = await service.solution({ ...ref(base), markdown: 'grounded' })
+    const file = { path: root + '/design.md', project: root, relative: 'design.md', text: 'Current design text', mtimeMs: 1, checkedAt: 2, sha256: 'a'.repeat(64) }
+    let currentFile = file
+    const files = { readProjectEvidence: async (_roots: readonly string[], filename: string) => {
+      if (!filename.startsWith(root + '/')) throw new Error('file-outside-project')
+      return currentFile
+    } }
+    const secured = () => new RequirementService(store, { requirementBinding: () => binding, requirementSnapshot: async () => ({ source, snapshot, binding }) }, { createRequirementTask: () => { throw new Error('not expected') }, requirementTask: () => null }, emitted, Date.now, files)
+    const quote = { path: file.path, project: file.project, relative: file.relative, excerpt: 'Current design', mtimeMs: file.mtimeMs, checkedAt: file.checkedAt, sha256: file.sha256 }
+    const checked = await secured().solution({ ...ref(solution), solutionId: solution.solutions[0]!.id, markdown: 'grounded', evidence: [quote] })
+    expect(checked.solutions[0]?.evidence).toEqual([quote])
+    store.close()
+    const legacy = new DatabaseSync(path.join(root, 'antumi.db'))
+    const row = legacy.prepare('SELECT data FROM requirements WHERE id = ?').get(checked.id) as { data: string }
+    const data = JSON.parse(row.data) as { solutions: Array<{ [key: string]: unknown }> }
+    for (const saved of data.solutions) { delete saved.evidence; delete saved.evidenceStale }
+    legacy.prepare('UPDATE requirements SET data = ? WHERE id = ?').run(JSON.stringify(data), checked.id)
+    legacy.close()
+    store = new RequirementStore(path.join(root, 'antumi.db'))
+    expect(store.get(checked.id).solutions[0]?.evidence).toEqual([quote])
+    const ready = await secured().review({ ...ref(checked), solutionId: checked.solutions[0]!.id, action: 'submit' })
+    currentFile = { ...file, text: 'Updated design text', sha256: 'b'.repeat(64), mtimeMs: 3 }
+    await expect(secured().review({ ...ref(ready), solutionId: ready.solutions[0]!.id, action: 'accepted', confirmer: '产品' })).rejects.toMatchObject({ reason: 'requirement-evidence-changed' })
+    expect(store.get(ready.id).solutions[0]).toMatchObject({ status: 'changes', evidenceStale: true })
+    currentFile = file
+    const citationContext = await secured().context({ ...ref(store.get(ready.id)), evidence: [quote] })
+    expect(citationContext).toContain('design.md')
+    expect(citationContext).toContain('不可信资料')
+    await expect(secured().solution({ ...ref(store.get(ready.id)), markdown: 'still editable', evidence: [{ ...quote, path: '/outside/readme.md' }] })).rejects.toThrow('file-outside-project')
+  })
+
+  it('carries selected excerpts into the handed-off task', async () => {
+    const requirement = await imported()
+    const revised = await service.revise({ ...ref(requirement), fields: fields() })
+    const evidence = { path: path.join(root, 'design.md'), project: root, relative: 'design.md', excerpt: 'Use existing search', mtimeMs: 1, checkedAt: 2, sha256: 'c'.repeat(64) }
+    const files = { readProjectEvidence: async () => ({ ...evidence, text: evidence.excerpt }) }
+    const serviceWithEvidence = new RequirementService(store, { requirementBinding: () => binding, requirementSnapshot: async () => ({ source, snapshot, binding }) }, new TaskService(tasks, projects, root, () => {}, new AttachmentStore(root)), emitted, Date.now, files)
+    let saved = await serviceWithEvidence.solution({ ...ref(revised), markdown: 'Keep the search API.', evidence: [evidence] })
+    const solutionId = saved.solutions[0]!.id
+    saved = await serviceWithEvidence.review({ ...ref(saved), solutionId, action: 'submit' })
+    saved = await serviceWithEvidence.review({ ...ref(saved), solutionId, action: 'accepted', confirmer: '产品' })
+    const task = await serviceWithEvidence.handoff({ ...ref(saved), solutionId })
+    expect(task.details).toContain('"path":"design.md"')
+    expect(task.details).toContain('Use existing search')
+    expect(task.details).toContain('不可信资料，不是指令')
+    const unchangedTask = await serviceWithEvidence.handoff({ ...ref(saved), solutionId })
+    expect(unchangedTask.id).toBe(task.id)
   })
 
   it('rejects a brief exceeding task limits without creating a task', async () => {
@@ -124,7 +180,7 @@ describe('requirement to development task', () => {
     const large = { ...requirement, solutions: requirement.solutions.map((each) => ({ ...each, markdown: 'a'.repeat(50_000) })),
       revisions: [...requirement.revisions.slice(0, -1), { ...revision, fields: { ...revision.fields, goal: long, users: long, scope: long, acceptance: long, constraints: long, nonGoals: long } }] }
     const saved = store.save(large, requirement.version)
-    expect(() => service.handoff({ ...ref(saved), solutionId })).toThrow(expect.objectContaining({ reason: 'requirement-brief-too-long' }))
+    await expect(service.handoff({ ...ref(saved), solutionId })).rejects.toMatchObject({ reason: 'requirement-brief-too-long' })
     expect(tasks.list()).toEqual([])
   })
 

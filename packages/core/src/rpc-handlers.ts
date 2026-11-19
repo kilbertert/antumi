@@ -133,7 +133,7 @@ export function createRpcHandlers(
     if (!mobile) throw new Rejection('mobile-unavailable')
     return mobile
   }
-  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (feature !== 'requirements' || Boolean(requirements)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
+  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (feature !== 'requirements' || Boolean(requirements)) && (feature !== 'requirement-evidence' || Boolean(requirements?.evidenceSupported)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
   const channelService = (): ChannelService => {
     if (!channels) throw new Rejection('channels-unavailable')
     return channels
@@ -495,14 +495,19 @@ export function createRpcHandlers(
     'requirements.solution': (params) => requirementService().solution(params),
     'requirements.review': (params) => requirementService().review(params),
     'requirements.handoff': (params) => requirementService().handoff(params),
-    'requirements.context': ({ id, version }) => {
+    'requirements.context': async ({ id, version, evidence }) => {
       const requirement = requirementService().get(id)
       if (requirement.version !== version) throw new Rejection('requirement-conflict')
       const revision = requirement.revisions.at(-1)!
-      const text = `请分析以下需求，明确缺失信息、可复用能力、推荐与备选方案、数据/接口/权限影响、风险与验收计划。只分析，不修改项目文件。\n\n${requirementBrief(requirement, revision)}\n\n${untrustedSource(revision.source, revision.snapshot, [], 50_000)}`
+      const citations = await requirementService().context({ id, version, evidence })
+      const current = requirementService().get(id)
+      if (current.version !== version) throw new Rejection('requirement-conflict')
+      const text = `请分析以下需求，明确缺失信息、可复用能力、推荐与备选方案、数据/接口/权限影响、风险与验收计划。只分析，不修改项目文件。\n\n${requirementBrief(current, current.revisions.at(-1)!)}\n\n${untrustedSource(revision.source, revision.snapshot, [], 50_000)}${citations}`
       if (text.length > 100_000) throw new Rejection('requirement-brief-too-long', '需求超过会话长度上限，请精简结构化字段')
       return { text, projectPaths: revision.fields.repos, images: revision.snapshot.images }
     },
+    'requirements.searchEvidence': (params) => requirementService().searchEvidence(params, searchFiles),
+    'requirements.readEvidence': (params) => requirementService().readEvidence(params),
     'tasks.create': (params, connection) => {
       // A squad is set up on the computer, with the agent profiles it runs.
       if (connection.mobile && params.squadId) throw new Rejection('mobile-not-allowed', 'squads are set up on the computer')

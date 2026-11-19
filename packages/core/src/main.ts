@@ -58,6 +58,7 @@ import { migrateLegacyJira } from './source-migration'
 import { SourceService } from './source-service'
 import { ConversationStore } from './conversation-store'
 import { ConversationService } from './conversation-service'
+import { ConversationFiles } from './conversation-files'
 import { TerminalCommandStore } from './terminal-commands'
 import { BookmarkStore } from './bookmarks'
 import { BrowserHistoryStore } from './browser-history'
@@ -739,7 +740,7 @@ sources.automatic = sourceInvestigations
 conversations.setAutomaticInvestigation(sourceInvestigations)
 
 const requirementStore = new RequirementStore(paths.database)
-const requirements = new RequirementService(requirementStore, sources, service, (requirement) => server?.broadcast('requirements.changed', { requirement }))
+const requirements = new RequirementService(requirementStore, sources, service, (requirement) => server?.broadcast('requirements.changed', { requirement }), Date.now, new ConversationFiles((id) => conversations.get(id)))
 
 const token = randomBytes(32).toString('hex')
 server = await startRpcServer({

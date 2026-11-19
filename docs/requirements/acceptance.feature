@@ -21,6 +21,17 @@ Feature: Turn a ZenTao requirement into an accepted development brief
       Then the other window cannot overwrite it with its older revision
 
   Rule: Review and development refer to a specific requirement revision
+    Scenario: Review selected project evidence
+      Given a requirement linked to a code repository
+      When I search its project files, open one, choose a verbatim excerpt and save a solution
+      Then the solution keeps the excerpt, repository-relative path and file revision
+      And the Agent receives only the selected excerpts as untrusted evidence
+      And the development task retains the adopted excerpts with their source paths
+      And an excerpt that changed after selection blocks saving, review and handoff
+    Scenario: Refuse evidence outside the linked projects
+      Given a requirement linked to a code repository
+      When I submit a file from another directory or an excerpt absent from the source
+      Then the evidence is rejected and no unsupported citation is saved
     Scenario: Accept and hand off a solution
       Given a requirement with an owner, goal, scope, acceptance criteria and repository
       When I save a solution, submit it for review and record the owner's acceptance with the development review

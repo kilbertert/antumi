@@ -19,10 +19,21 @@ export const RequirementRevision = z.object({
   source: TaskSource, snapshot: SourceSnapshot, createdAt: z.number()
 })
 export type RequirementRevision = z.infer<typeof RequirementRevision>
+export const RequirementEvidence = z.object({
+  path: z.string().min(1).max(32_768), project: z.string().min(1).max(32_768), relative: z.string().min(1).max(32_768),
+  excerpt: z.string().trim().min(1).max(6_000), mtimeMs: z.number().nonnegative(), checkedAt: z.number().nonnegative(), sha256: z.string().regex(/^[a-f0-9]{64}$/)
+})
+export type RequirementEvidence = z.infer<typeof RequirementEvidence>
+export const RequirementEvidenceFile = z.object({
+  path: z.string(), project: z.string(), relative: z.string(), text: z.string(), mtimeMs: z.number(), checkedAt: z.number(), sha256: z.string().regex(/^[a-f0-9]{64}$/)
+})
+export type RequirementEvidenceFile = z.infer<typeof RequirementEvidenceFile>
 export const SolutionStatus = z.enum(['draft', 'review', 'changes', 'accepted'])
 export const RequirementSolution = z.object({
   id: z.string().uuid(), revision: z.number().int().positive(),
   markdown: z.string().trim().max(50_000), status: SolutionStatus,
+  evidence: z.array(RequirementEvidence).max(20).default([]),
+  evidenceStale: z.boolean().optional(),
   reviews: z.array(z.object({ decision: z.enum(['changes', 'accepted']),
     confirmer: Text.min(1), feedback: Text, createdAt: z.number() })),
   createdAt: z.number(), updatedAt: z.number()
@@ -40,6 +51,7 @@ export const RequirementEdit = RequirementRef.extend({ version: z.number().int()
 export function solutionBlocker(requirement: Requirement, solution: RequirementSolution, action: 'submit' | 'accept' | 'handoff'): string | null {
   const latest = requirement.revisions.at(-1)!
   if (solution.revision !== latest.number) return 'requirement-stale'
+  if (solution.evidenceStale) return 'requirement-evidence-changed'
   if (action === 'handoff') return solution.status === 'accepted' ? null : 'solution-not-accepted'
   if (action === 'accept' && solution.status !== 'review') return 'solution-not-reviewing'
   if (action === 'submit' && !['draft', 'changes'].includes(solution.status)) return 'solution-not-editable'

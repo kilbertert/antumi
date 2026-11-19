@@ -205,6 +205,10 @@ export class TaskService {
     return this.changed(task)
   }
 
+  requirementTask(solutionId: string): Task | null {
+    return this.store.requirementTask(solutionId)
+  }
+
   // Keys of the issues tasks were imported from, abandoned ones included: a redo keeps its source.
   importedKeys(provider: string, instance: string): Set<string> {
     return new Set(

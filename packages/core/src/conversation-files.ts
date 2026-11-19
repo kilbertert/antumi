@@ -1,4 +1,5 @@
 import { constants } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { open, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -30,7 +31,7 @@ function missing(error: unknown): boolean {
 }
 
 export class ConversationFiles {
-  constructor(private readonly owner: (id: string) => FileOwner) {}
+  constructor(private readonly owner: (id: string) => FileOwner, private readonly now: () => number = Date.now) {}
 
   private roots(scope: FileScope): readonly string[] {
     if (typeof scope !== 'string') return scope.roots
@@ -101,6 +102,45 @@ export class ConversationFiles {
     } catch (error) {
       return { kind: 'unavailable', reason: missing(error) ? 'not-found' : 'unreadable' }
     }
+  }
+
+  async readProjectEvidence(roots: readonly string[], file: string) {
+    if (!path.isAbsolute(file) || roots.length === 0 || roots.some((root) => !path.isAbsolute(root))) {
+      throw new Rejection('file-path-invalid', '依据文件必须位于关联代码项目中')
+    }
+    const [realRoots, realFile] = await Promise.all([
+      Promise.all(roots.map((root) => realpath(root).catch(() => null))),
+      realpath(file).catch(() => null)
+    ])
+    if (!realFile) throw new Rejection('file-unreadable', '依据文件不存在或不可读')
+    const validRoots = realRoots.filter((root): root is string => root !== null)
+    if (validRoots.length !== roots.length) throw new Rejection('file-unreadable', '关联代码项目不存在或不可读')
+    const { root, relative } = projectLocation(realFile, validRoots)
+    if (!root || !relative) throw new Rejection('file-outside-project', '依据只能来自关联代码项目')
+    const flags = constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0)
+    const handle = await open(realFile, flags).catch(() => { throw new Rejection('file-unreadable', '依据文件不存在或不可读') })
+    try {
+      const opened = await handle.stat()
+      if (!opened.isFile() || opened.size > MAX_FILE_PREVIEW_BYTES) throw new Rejection('evidence-unavailable', '依据文件不是可预览的小型文本文件')
+      const buffer = Buffer.alloc(MAX_FILE_PREVIEW_BYTES + 1)
+      let length = 0
+      while (length < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null)
+        if (bytesRead === 0) break
+        length += bytesRead
+      }
+      const bytes = buffer.subarray(0, length)
+      if (length > MAX_FILE_PREVIEW_BYTES || bytes.includes(0)) throw new Rejection('evidence-unavailable', '依据文件不是可预览的小型文本文件')
+      let text: string
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+      catch { throw new Rejection('evidence-unavailable', '依据文件不是有效 UTF-8 文本') }
+      const [after, realAfter] = await Promise.all([stat(realFile).catch(() => null), realpath(file).catch(() => null)])
+      if (!after?.isFile() || after.mtimeMs !== opened.mtimeMs || after.dev !== opened.dev || after.ino !== opened.ino || realAfter !== realFile) {
+        throw new Rejection('file-changed', '读取期间依据文件发生变化，请重试')
+      }
+      return { path: realFile, project: root, relative, text, mtimeMs: opened.mtimeMs,
+        checkedAt: this.now(), sha256: createHash('sha256').update(text).digest('hex') }
+    } finally { await handle.close() }
   }
 
   async list(scope: FileScope, dir: string): Promise<DirectoryListing> {
