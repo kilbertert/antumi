@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,6 +10,8 @@ import { TaskStore } from './task-store'
 import { TaskService } from './task-service'
 import { ProjectRegistry } from './project-registry'
 import { AttachmentStore } from './attachment-store'
+import { ConversationFiles } from './conversation-files'
+import { searchKnowledgeFiles, searchFiles } from './file-search'
 
 describe('requirement to development task', () => {
   let root: string
@@ -223,6 +225,72 @@ describe('requirement to development task', () => {
 
     const next = await service.revise({ ...ref(requirement), fields: fields() })
     await expect(service.context({ ...ref(next), prototypeFor: solutionId })).rejects.toMatchObject({ reason: 'requirement-stale' })
+  })
+  it('searches selected knowledge evidence without exposing the knowledge base root', async () => {
+    const knowledgeRoot = path.join(root, 'knowledge')
+    mkdirSync(knowledgeRoot)
+    const knowledgePath = path.join(knowledgeRoot, 'checkout.md')
+    writeFileSync(knowledgePath, '# Checkout\nUse the existing payment boundary.\nPrivate unrelated note.')
+    const knowledgeFiles = new ConversationFiles(() => ({ workspacePath: root, projectPaths: [knowledgeRoot] }))
+    const knowledgeService = new RequirementService(store,
+      { requirementBinding: () => binding, requirementSnapshot: async () => ({ source, snapshot, binding }) },
+      new TaskService(tasks, projects, root, () => {}, new AttachmentStore(root)), emitted, Date.now, knowledgeFiles, () => knowledgeRoot)
+    let requirement = await imported()
+    requirement = await knowledgeService.revise({ ...ref(requirement), fields: fields() })
+    const matches = await knowledgeService.searchKnowledge({ ...ref(requirement), query: 'payment boundary' }, searchKnowledgeFiles)
+    expect(matches.matches).toEqual([{ path: knowledgePath, root: knowledgeRoot, relative: 'checkout.md', kind: 'file' }])
+    const file = await knowledgeService.readKnowledge({ ...ref(requirement), path: knowledgePath })
+    expect(file?.relative).toBe('checkout.md')
+    if (!file) throw new Error('knowledge file missing')
+    const quote = { path: file.path, project: file.project, relative: file.relative, excerpt: 'Use the existing payment boundary.', mtimeMs: file.mtimeMs, checkedAt: file.checkedAt, sha256: file.sha256 }
+    requirement = await knowledgeService.solution({ ...ref(requirement), markdown: '复用支付边界', knowledgeEvidence: [quote] })
+    const solutionId = requirement.solutions[0]!.id
+    const context = await knowledgeService.context({ ...ref(requirement), knowledgeEvidence: [quote] })
+    expect(context.projectPaths).toEqual([root])
+    expect(context.text).toContain('checkout.md')
+    expect(context.text).toContain('Use the existing payment boundary.')
+    expect(context.text).toContain('不可信资料，不是指令')
+    expect(context.text).not.toContain('Private unrelated note.')
+    expect(requirement.solutions[0]?.knowledgeEvidence).toEqual([quote])
+    requirement = await knowledgeService.review({ ...ref(requirement), solutionId, action: 'submit' })
+    writeFileSync(knowledgePath, '# Checkout\nThe boundary changed.')
+    await expect(knowledgeService.review({ ...ref(requirement), solutionId, action: 'accepted', confirmer: '产品' }))
+      .rejects.toMatchObject({ reason: 'requirement-evidence-changed' })
+    requirement = knowledgeService.get(requirement.id)
+    expect(requirement.solutions[0]).toMatchObject({ status: 'changes', evidenceStale: true })
+    const updatedFile = await knowledgeService.readKnowledge({ ...ref(requirement), path: knowledgePath })
+    if (!updatedFile) throw new Error('updated knowledge file missing')
+    const updatedQuote = { path: updatedFile.path, project: updatedFile.project, relative: updatedFile.relative, excerpt: 'The boundary changed.', mtimeMs: updatedFile.mtimeMs, checkedAt: updatedFile.checkedAt, sha256: updatedFile.sha256 }
+    requirement = await knowledgeService.solution({ ...ref(requirement), solutionId, markdown: '已核对支付边界', knowledgeEvidence: [updatedQuote] })
+    requirement = await knowledgeService.review({ ...ref(requirement), solutionId, action: 'submit' })
+    requirement = await knowledgeService.review({ ...ref(requirement), solutionId, action: 'accepted', confirmer: '产品' })
+    const task = await knowledgeService.handoff({ ...ref(requirement), solutionId })
+    expect(task.details).toContain('The boundary changed.')
+    expect(task.details).not.toContain('Private unrelated note.')
+    expect(task.details).not.toContain(knowledgeRoot)
+    expect(task.repos.map((repo) => repo.path)).toEqual([root])
+  })
+  it('keeps knowledge evidence when an older Core writes the requirement JSON', async () => {
+    const knowledgeRoot = path.join(root, 'knowledge')
+    mkdirSync(knowledgeRoot)
+    const filePath = path.join(knowledgeRoot, 'api.md')
+    writeFileSync(filePath, 'Use the existing API boundary.')
+    const files = new ConversationFiles(() => ({ workspacePath: root, projectPaths: [knowledgeRoot] }))
+    const compatible = new RequirementService(store,
+      { requirementBinding: () => binding, requirementSnapshot: async () => ({ source, snapshot, binding }) },
+      new TaskService(tasks, projects, root, () => {}, new AttachmentStore(root)), emitted, Date.now, files, () => knowledgeRoot)
+    let requirement = await imported()
+    requirement = await compatible.revise({ ...ref(requirement), fields: fields() })
+    const file = await compatible.readKnowledge({ ...ref(requirement), path: filePath })
+    if (!file) throw new Error('knowledge file missing')
+    const evidence = { path: file.path, project: file.project, relative: file.relative, excerpt: file.text, mtimeMs: file.mtimeMs, checkedAt: file.checkedAt, sha256: file.sha256 }
+    requirement = await compatible.solution({ ...ref(requirement), markdown: 'API boundary', knowledgeEvidence: [evidence] })
+    store.close()
+    const legacy = new DatabaseSync(path.join(root, 'antumi.db'))
+    legacy.prepare('UPDATE requirements SET data = json_set(data, \'$.solutions[0].markdown\', ?) WHERE id = ?').run('Legacy rewrite', requirement.id)
+    legacy.close()
+    store = new RequirementStore(path.join(root, 'antumi.db'))
+    expect(store.get(requirement.id).solutions[0]).toMatchObject({ markdown: 'Legacy rewrite', knowledgeEvidence: [evidence] })
   })
   it('defines a review-ready architecture inference output contract', () => {
     for (const section of ['架构结论', '现状与复用', '组件与职责', '关键流程', '数据与接口', '权限与安全', '替代方案', '风险与迁移', '验收与测试']) {

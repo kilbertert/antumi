@@ -38,6 +38,18 @@ Feature: Turn a ZenTao requirement into an accepted development brief
       Given a requirement linked to a code repository
       When I submit a file from another directory or an excerpt absent from the source
       Then the evidence is rejected and no unsupported citation is saved
+    Scenario: Search and cite the configured knowledge base
+      Given a configured Markdown or Obsidian knowledge base and a saved requirement
+      When I search its documents, preview one, select an exact excerpt and save the solution
+      Then the solution preserves the excerpt, knowledge-base-relative path and file revision
+      And the Agent receives only the selected excerpt as untrusted knowledge evidence
+      And the development task retains the excerpt with its source path
+      And an excerpt that changed after selection blocks saving, review and handoff
+    Scenario: Do not expose the full knowledge base to a requirement Agent
+      Given a configured knowledge base that may contain unrelated private notes
+      When I ask an Agent to analyze a requirement
+      Then only knowledge excerpts I selected are included in its context
+      And the knowledge-base directory is not added as an Agent project
     Scenario: Accept and hand off a solution
       Given a requirement with an owner, goal, scope, acceptance criteria and repository
       When I save a solution, submit it for review and record the owner's acceptance with the development review

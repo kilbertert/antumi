@@ -27,7 +27,8 @@ const MESSAGE_SELECT = `SELECT sequence, conversation_id AS conversationId, stag
 const AgentChoice = z.object({ model: z.string().optional(), effort: z.string().optional() })
 const ChatOptions = z.object({
   permissionMode: z.string().optional(),
-  allowBypass: z.boolean().optional()
+  allowBypass: z.boolean().optional(),
+  knowledgeBase: z.boolean().optional()
 }).and(z.partialRecord(AgentKind, AgentChoice)).catch({})
 export type ChatOptions = z.infer<typeof ChatOptions>
 

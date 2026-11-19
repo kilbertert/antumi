@@ -9,7 +9,7 @@ describe('requirement drafts', () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => data.get(key) ?? null,
       setItem: (key: string, value: string) => data.set(key, value), removeItem: (key: string) => data.delete(key) })
     const draft = { version: 2, fields: EMPTY_REQUIREMENT_FIELDS, fieldsDirty: true, solutionDirty: false,
-      solutionId: null, markdown: 'draft', prototypeHtml: '<h1>Preview</h1>', feedback: 'needs review', confirmer: 'owner', evidence: [], query: '', file: null, excerpt: '' }
+      solutionId: null, markdown: 'draft', prototypeHtml: '<h1>Preview</h1>', feedback: 'needs review', confirmer: 'owner', evidence: [], knowledgeEvidence: [], query: '', knowledgeQuery: '', file: null, excerpt: '', knowledgeFile: null, knowledgeExcerpt: '' }
     keepRequirementDraft('one', draft)
     keepRequirementDraft('two', { ...draft, version: 3 })
     expect(requirementDraft('one')).toEqual(draft)

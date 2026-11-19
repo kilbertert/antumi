@@ -740,7 +740,8 @@ sources.automatic = sourceInvestigations
 conversations.setAutomaticInvestigation(sourceInvestigations)
 
 const requirementStore = new RequirementStore(paths.database)
-const requirements = new RequirementService(requirementStore, sources, service, (requirement) => server?.broadcast('requirements.changed', { requirement }), Date.now, new ConversationFiles((id) => conversations.get(id)))
+const requirements = new RequirementService(requirementStore, sources, service, (requirement) => server?.broadcast('requirements.changed', { requirement }), Date.now,
+  new ConversationFiles((id) => conversations.get(id)), () => chatSettings.current().knowledgeBase?.path ?? null)
 
 const token = randomBytes(32).toString('hex')
 server = await startRpcServer({

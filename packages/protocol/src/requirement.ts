@@ -24,6 +24,12 @@ export const RequirementEvidence = z.object({
   excerpt: z.string().trim().min(1).max(6_000), mtimeMs: z.number().nonnegative(), checkedAt: z.number().nonnegative(), sha256: z.string().regex(/^[a-f0-9]{64}$/)
 })
 export type RequirementEvidence = z.infer<typeof RequirementEvidence>
+export const RequirementKnowledgeEvidence = z.object({
+  path: z.string().min(1).max(32_768), project: z.string().min(1).max(32_768), relative: z.string().min(1).max(32_768),
+  excerpt: z.string().trim().min(1).max(6_000), mtimeMs: z.number().nonnegative(), checkedAt: z.number().nonnegative(), sha256: z.string().regex(/^[a-f0-9]{64}$/)
+})
+export type RequirementKnowledgeEvidence = z.infer<typeof RequirementKnowledgeEvidence>
+export const RequirementKnowledgeSearch = z.object({ matches: z.array(z.object({ path: z.string(), root: z.string(), relative: z.string(), kind: z.literal('file') })), truncated: z.boolean() })
 export const RequirementEvidenceFile = z.object({
   path: z.string(), project: z.string(), relative: z.string(), text: z.string(), mtimeMs: z.number(), checkedAt: z.number(), sha256: z.string().regex(/^[a-f0-9]{64}$/)
 })
@@ -35,6 +41,7 @@ export const RequirementSolution = z.object({
   id: z.string().uuid(), revision: z.number().int().positive(),
   markdown: z.string().trim().max(50_000), status: SolutionStatus,
   evidence: z.array(RequirementEvidence).max(20).default([]),
+  knowledgeEvidence: z.array(RequirementKnowledgeEvidence).max(20).default([]),
   evidenceStale: z.boolean().optional(),
   prototypeHtml: RequirementPrototypeHtml.optional(),
   reviews: z.array(z.object({ decision: z.enum(['changes', 'accepted']),
