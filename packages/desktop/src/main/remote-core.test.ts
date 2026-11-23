@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,13 +10,15 @@ const home = mkdtempSync(join(tmpdir(), 'antumi-remote-'))
 process.env.ANTUMI_HOME = home
 
 const rc = await import('./remote-core')
-const { readRemoteConfig, RemoteCoreConfig, remoteConfigPath } = rc
+const { readRemoteConfig, RemoteCoreConfig, remoteConfigPath, createRemoteLink } = rc
+const { antumiPaths } = await import('@antumi/protocol/node')
 // Not exported for production use; tests reach for them to pin the behaviour the first run missed.
 const isPortFreeForTest = (port: number) => (rc as any).__testPortFree(port)
 const pidOnPortForTest = (port: number) => (rc as any).__testPidOnPort(port)
 
 afterEach(() => {
   try { rmSync(remoteConfigPath(), { force: true }) } catch { /* first run */ }
+  try { rmSync(antumiPaths().coreEndpoint, { force: true }) } catch { /* no endpoint written */ }
 })
 
 describe('remote core configuration', () => {
@@ -106,3 +108,24 @@ async function freePort(): Promise<number> {
   await new Promise<void>((done) => server.close(() => done()))
   return port
 }
+
+// The first remote→local switch stranded the window: the tunnel was gone but core.json still
+// pointed at its dead port, and the healthy local core beside it was never tried. stop() now
+// restores what ensure() overwrote — and touches only a file that still names this link's port.
+describe('stopping a remote link restores core.json', () => {
+  const config = RemoteCoreConfig.parse({ sshHost: 'dev-us', corePort: 12999, remoteHome: '/r' })
+
+  it('leaves an endpoint for another port alone', () => {
+    const file = antumiPaths().coreEndpoint
+    writeFileSync(file, JSON.stringify({ port: 44989, token: 't', pid: 1, protocolVersion: 18 }))
+    createRemoteLink(config).stop()
+    expect(JSON.parse(readFileSync(file, 'utf8')).port).toBe(44989)
+  })
+
+  it('removes the endpoint it left when nothing preceded it', () => {
+    const file = antumiPaths().coreEndpoint
+    writeFileSync(file, JSON.stringify({ port: 12999, token: 't', pid: 1, protocolVersion: 18 }))
+    createRemoteLink(config).stop()
+    expect(existsSync(file)).toBe(false)
+  })
+})
