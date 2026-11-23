@@ -114,6 +114,11 @@ export function feishuContent(type: string, content: string, mentions: readonly 
   return { text, images, otherFiles }
 }
 
+// Lark, Feishu outside China, speaks the same on its own domain.
+export function larkConnector(channel: GatewayChannel, emit: ConnectorEmit): ChannelConnector {
+  return feishuConnector(channel, emit, { api: 'https://open.larksuite.com' })
+}
+
 export function feishuConnector(channel: GatewayChannel, emit: ConnectorEmit, options: FeishuOptions = {}): ChannelConnector {
   const api = options.api ?? 'https://open.feishu.cn'
   const retryMs = options.retryMs ?? RETRY_MS

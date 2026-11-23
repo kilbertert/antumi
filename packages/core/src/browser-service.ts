@@ -102,6 +102,14 @@ export class BrowserService {
     this.sites = sites
   }
 
+  async pluginSession(params: BrowserHostParams<'plugin.session'>) {
+    try { return await (await this.ensureLink()).request('plugin.session', params) }
+    catch (error) {
+      if (error instanceof Rejection && error.reason === 'unknown-method') throw new Rejection('browser-app-outdated', '当前 Antumi 应用不支持插件登录，请升级应用')
+      throw error
+    }
+  }
+
   // ---- the app's host
 
   // The host file may have changed: an app came up, or went. Connects when none is; a link that

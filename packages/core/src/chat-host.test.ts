@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatReference, ChatItem } from '@antumi/protocol'
 import type { StageMessage } from './chat-driver'
 import type { UsageReport } from './usage-source'
@@ -208,6 +208,29 @@ describe('ChatHost', () => {
     await host.send(STAGE.conversationId, 'go on', [], false, false, 'usage-limit:1')
     expect(userFrames(sessionId)).toHaveLength(1)
     expect(host.items(STAGE).filter((item) => item.kind === 'user').map((item) => item.id)).toEqual(['u:usage-limit:1'])
+  })
+
+  it('leaves a disconnected send retryable instead of logging it as already sent', async () => {
+    const { host, sessionId } = await started()
+    vi.spyOn(daemon, 'assertConnected').mockImplementationOnce(() => { throw new Error('offline') })
+    await expect(host.send(STAGE.conversationId, 'try again', [], false, false, 'retry')).rejects.toThrow('offline')
+    expect(host.items(STAGE).filter((item) => item.kind === 'user')).toEqual([])
+    expect(ChatLog.of(root, STAGE.conversationId, STAGE.stageId).read().records.some((record) => record.dir === 'out' && record.ref === 'retry')).toBe(false)
+    await host.send(STAGE.conversationId, 'try again', [], false, false, 'retry')
+    expect(userFrames(sessionId)).toHaveLength(1)
+    expect(host.items(STAGE).filter((item) => item.kind === 'user')).toHaveLength(1)
+  })
+
+  it('does not resend a logged message when only the daemon write reply is lost', async () => {
+    const { host, sessionId } = await started()
+    const request = daemon.request
+    vi.spyOn(daemon, 'request').mockImplementationOnce(async (method, params) => {
+      await request(method, params)
+      throw new Error('reply lost')
+    })
+    await expect(host.send(STAGE.conversationId, 'once', [], false, false, 'retry')).rejects.toThrow('reply lost')
+    await host.send(STAGE.conversationId, 'once', [], false, false, 'retry')
+    expect(userFrames(sessionId)).toHaveLength(1)
   })
 
   it('passes on the limits the agent reports while it runs', async () => {

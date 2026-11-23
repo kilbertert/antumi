@@ -32,10 +32,12 @@ node -p 'require("./package.json").version'
 
 ```bash
 pnpm install
-pnpm dist:mac    # → packages/desktop/dist/Antumi-<版本>-macos-arm64.dmg（Apple 芯片）
-pnpm dist:win    # → packages/desktop/dist/Antumi-<版本>-windows-x64.exe（macOS 上也能打）
+pnpm dist:mac    # → packages/desktop/dist/Antumi-<版本>-macos-arm64.dmg（Apple 芯片）和 -macos-x64.dmg（Intel）
+pnpm dist:win    # → packages/desktop/dist/Antumi-<版本>-windows-x64.exe（macOS 上也能打，但包里没有 WSL 用的后端，见下）
 pnpm dist:linux  # → packages/desktop/dist/Antumi-<版本>-linux-x86_64.AppImage 和 -linux-amd64.deb（只能在 Linux 上打，要有 C++ 编译器和 python3）
 ```
+
+Windows 包里给 WSL 用的后端（`resources/wsl/`，见 [WSL.md](WSL.md)）要在 Linux 上编，只有 Release 工作流打的包带着；本机 `dist:win` 打出来的没有，设置里也就不出现「后端位置」。
 
 `<版本>` 取自 `packages/desktop/package.json`。耗时约 1–3 分钟。日志里出现 `skipped macOS application code signing … 0 valid identities found` 是正常的：没有 Apple 证书，App 走 ad-hoc 签名。
 
@@ -46,7 +48,7 @@ cd packages/desktop
 pnpm exec electron-vite build
 node scripts/bundle-backend.mjs --platform darwin
 pnpm exec electron-builder --mac --publish never -c.extraMetadata.version=<下一版>-beta.1
-# → packages/desktop/dist/Antumi-<下一版>-beta.1-macos-arm64.dmg
+# → packages/desktop/dist/Antumi-<下一版>-beta.1-macos-arm64.dmg 和 -macos-x64.dmg
 ```
 
 打完检查（mac）：
@@ -132,7 +134,7 @@ git push origin vX.Y.Z
 标签一推送，[Release 工作流](../.github/workflows/release.yml)自动运行：
 
 1. 校验标签格式，五个 `package.json` 的版本必须等于标签去掉 `v`，`CHANGELOG.md` 里必须有非空的 `## X.Y.Z` 段落；然后跑类型检查和测试。
-2. 分别在 macOS、Windows 和 Linux 上执行 `dist:mac`、`dist:win` 和 `dist:linux`。
+2. 在 Linux 上打出给 WSL 用的后端包，再分别在 macOS、Windows 和 Linux 上执行 `dist:mac`、`dist:win` 和 `dist:linux`；Windows 那一个把后端包带进安装包。
 3. 创建 GitHub Release，标题 `Antumi vX.Y.Z`，说明取自 CHANGELOG 的这一段，附上 DMG、EXE、AppImage、deb 和它们的 `SHA256SUMS`（App 在 GitHub 接口限流、改读发布订阅时，靠它校验安装包）。
 
 查看进度：`gh run list --workflow=Release --limit 3`，`gh run watch <id>`。

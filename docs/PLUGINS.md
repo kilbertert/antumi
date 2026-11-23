@@ -1,12 +1,12 @@
-# 任务来源插件
+# 插件
 
-首版只提供任务来源，不提供 Agent 接入或自定义界面。插件是可信的本机程序：独立 Node 进程隔离崩溃，但不限制文件或网络访问；登录和同步会把对应来源的凭据交给它。
+插件可以提供任务来源，也可以自带页面（SDK 0.2.0 起），不提供 Agent 接入。插件是可信的本机程序：独立 Node 进程隔离崩溃，但不限制文件或网络访问；登录和同步会把对应来源的凭据交给它。
 
-[安装与使用](#使用) · [开发插件](#开发一个任务来源插件) · [Manifest](#manifest) · [通信协议](#协议-v1)
+[安装与使用](#使用) · [开发来源插件](#开发一个任务来源插件) · [插件页面](#插件页面) · [Manifest](#manifest) · [通信协议](#协议-v1)
 
 ## 使用
 
-「设置 → 插件」的推荐列表包含 GitHub、Jira、Linear 和禅道，只保存 GitHub 仓库与发布定位信息。点击安装时，core 下载对应插件最新正式 Release 的 ZIP；启动、查看列表和构建应用都不会下载或安装来源插件。也可以安装本地目录、ZIP 或 GitHub Release。目录和 ZIP 的根目录必须有 `manifest.json`；目录安装会复制文件，后续修改开发目录不会改变已安装版本。GitHub 输入 `owner/repository`，可指定 Release 标签和 ZIP 附件名；未指定标签时使用最新正式 Release，多个 ZIP 时必须指定附件。安装来源可选 `tagPrefix`，按此前缀筛选正式 Release 并取语义版本最高者；显式 `tag` 优先。API 分页每页 100 条、最多 10 页；超限要求显式标签，不猜测版本。API 限流时按发布网页分页筛选，最多 10 页。查 Release 先用 GitHub 接口；接口因同一出口 IP 请求过多拒绝（403、429，多人共用的 VPN 常见）时，改从仓库的发布页读标签（`releases/latest` 的跳转）和附件列表（`releases/expanded_assets/<标签>`），下载地址同样只接受该仓库的 `releases/download/`。
+「设置 → 插件」的推荐列表包含 GitHub、Jira、Linear 和禅道，只保存 GitHub 仓库与发布定位信息。点击安装时，core 下载对应插件最新正式 Release 的 ZIP；启动、查看列表和构建应用都不会下载或安装来源插件。也可以安装本地目录、ZIP 或 GitHub 项目。目录和 ZIP 的根目录必须有 `manifest.json`；目录安装会复制文件，后续修改开发目录不会改变已安装版本。GitHub 填写项目地址（`https://github.com/owner/repository`，或 `owner/repository`），安装最新正式 Release：只有一个 ZIP 时直接安装，有多个时在界面里选择。安装来源仍可带 `tag`、`tagPrefix` 和 `asset`（推荐插件用它们定位各自的发布）；未指定标签时使用最新正式 Release，显式 `tag` 优先于 `tagPrefix`。多个 ZIP 又没指定 `asset` 时拒绝安装。API 分页每页 100 条、最多 10 页；超限要求显式标签，不猜测版本。API 限流时按发布网页分页筛选，最多 10 页。查 Release 先用 GitHub 接口；接口因同一出口 IP 请求过多拒绝（403、429，多人共用的 VPN 常见）时，改从仓库的发布页读标签（`releases/latest` 的跳转）和附件列表（`releases/expanded_assets/<标签>`），下载地址同样只接受该仓库的 `releases/download/`。
 
 安装文件放在 `ANTUMI_HOME/plugins/<id>/<version>/`（默认 `~/.antumi/plugins/`）。`active.json` 原子记录启用状态、当前版本、安装来源和来源 ID 归属。版本目录不覆盖；重新开发需要增加版本号。手动更新使用原安装来源，GitHub 更新按可选标签前缀检查最新正式 Release；不兼容版本拒绝安装。界面可以切换到保留的旧版。
 
@@ -32,7 +32,7 @@ Jira 的站点、JQL、凭据及已导入任务继续保留。升级不会自动
 
 插件在自己的仓库开发、测试和发布，通过安装包接入 Antumi。推荐列表是可选的分发入口；第三方插件可以直接用本地目录、ZIP 或 GitHub 仓库地址安装。
 
-当前 SDK 提供任务来源接口，适用于任务、Bug、需求、Issue 等事项。`type` 表示事项类型，一个来源可以返回多种类型；右侧边栏、自定义页面和 Agent 接入目前没有可用的 SDK 接口。
+这一节讲任务来源接口，适用于任务、Bug、需求、Issue 等事项。`type` 表示事项类型，一个来源可以返回多种类型。自带页面见[插件页面](#插件页面)；右侧边栏和 Agent 接入目前没有可用的 SDK 接口。
 
 ### 1. 从模板跑通第一个插件
 
@@ -196,6 +196,121 @@ pnpm exec tsx scripts/verify-source-plugin.ts ../antumi-plugin-acme/dist/antumi-
 - [Jira](https://github.com/flyhero/antumi-plugins/tree/main/plugins/jira)：JQL、富文本、评论与图片附件。
 - [Linear](https://github.com/flyhero/antumi-plugins/tree/main/plugins/linear)：团队和项目筛选、GraphQL 分页。
 - [禅道](https://github.com/flyhero/antumi-plugins/tree/main/plugins/zentao)：自定义站点、任务/Bug/需求及 RESTful API v1。
+
+## 插件页面
+
+插件可以自带页面：安装并启用后，侧栏多一个入口，点开后页面占满主区域。页面的界面由插件自己画，Antumi 只负责显示它、把它的调用转给插件的后台。一个插件可以只有页面、没有任务来源。需要 core 声明 `plugin-pages`；连到不支持的旧 core 时侧栏不显示入口。
+
+```
+页面（隔离 iframe，插件自己的 HTML/JS/CSS）
+   │ postMessage，每条消息带令牌
+desktop 渲染进程（PluginPageView）
+   │ RPC plugins.pageCall
+core（PluginService）──启动──> 插件的 Node 进程
+```
+
+### 声明和后台
+
+```json
+{
+  "contributes": {
+    "pages": [{ "id": "reader", "label": "阅读", "translations": { "en": { "label": "Reader" } }, "entry": "page/index.html" }]
+  }
+}
+```
+
+`id` 以小写字母开头，只含小写字母、数字和连字符，最多 32 字符；一个插件最多 4 个页面。`label` 是侧栏入口的名字。`entry` 是页面的 HTML，必须放在包里的子目录中：这个目录下的所有文件都会交给页面，所以不能是包的根目录。包里除 JS、JSON、Markdown 外，还可以有 `.html`、`.css` 和图片（`.svg .png .jpg .jpeg .webp .gif`），不接受字体。
+
+页面可选 `icon: { "path": "M6 4v12h9" }`，声明侧栏入口图标：在 `0 0 20 20` 坐标中画一条 SVG 路径，使用宿主文字颜色、1.6px 描边和圆角端点；路径最多 1024 字符，仅接受路径指令与数字，不接受 SVG 标记或图片地址。未声明或连接旧 core 时沿用通用插件图标。
+
+后台用 SDK 的 `runPlugin` 注册页面可以调用的方法，页面 id 必须和 manifest 完全一致：
+
+```ts
+import { runPlugin } from '@antumi/plugin-sdk'
+import manifest from '../manifest.json' with { type: 'json' }
+
+runPlugin({
+  manifest,
+  pages: {
+    reader: {
+      async list(params, { signal }) { /* 请求外部服务，返回 JSON */ }
+    }
+  }
+})
+```
+
+每次调用启动一个新进程，握手后执行一个方法，后台不保留内存；要缓存就放在页面里。方法抛出的错误，消息会原样交给页面，不要带凭据。`runSourcePlugin` 保留原有签名，旧插件不用改。
+
+### 页面
+
+页面用 SDK 的浏览器端入口和 Antumi 通信：
+
+```ts
+import { connect } from '@antumi/plugin-sdk/page'
+
+const host = await connect()
+const topics = await host.call('list', { channel: 'hot' })
+```
+
+| | 作用 |
+|---|---|
+| `call(method, params)` | 调用自己插件的后台，60 秒超时，失败时带着后台给的消息 |
+| `theme`、`onTheme` | 应用当前的配色和字体，以 CSS 变量给出（`--bg`、`--surface`、`--text`、`--accent`、`--font`、`--chat-font-size` 等）；SDK 已经把它们设到页面的根元素上，样式里直接用 |
+| `locale` | 界面语言，`zh-CN` 或 `en` |
+| `state`、`setState` | 页面想留到下次的少量数据（JSON） |
+| `open(url)` | 在内置浏览器打开 http/https 链接 |
+| `leave()` | 回到会话 |
+
+页面在隔离的 iframe 里（`sandbox="allow-scripts"`，没有自己的源），受这条 CSP 约束：
+
+```
+default-src 'none'; script-src antumi-plugin:; style-src antumi-plugin: 'unsafe-inline';
+img-src antumi-plugin: https: data: blob:; media-src antumi-plugin: https:;
+connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'
+```
+
+写页面时要注意：
+
+- 脚本只能是外链的普通脚本（打包成 IIFE）。ES module 和内联脚本都不会执行。
+- 页面不能联网，数据都经后台取。图片可以直接用 https 地址。
+- 没有 `localStorage`、cookie 和 IndexedDB，要留的数据用 `setState`。
+- 页面不能跳转，链接用 `open()`。
+- 焦点在页面里时，带 ⌘/Ctrl/Alt 的组合键和 F1–F12 由 SDK 转给应用，应用快捷键照常可用。
+
+### 离开和回来（SDK 0.4.0）
+
+离开插件页面时，Antumi 不卸载它，只是藏起来，页面里的脚本照常运行；10 分钟内回来，页面原样还在，不重新加载。超过 10 分钟，或者同时藏着的页面超过 3 个时，最久没看的那个会被卸载，下次打开重新加载，靠 `state` 恢复。
+
+页面藏着的时候：
+
+- SDK 把 `document.visibilityState` 报成 `hidden`，`document.hidden` 为真，并触发 `visibilitychange`；回来时报回 `visible`。轮询、定时刷新这类后台工作应当监听这个事件停下来，和普通网页在后台标签里一样。窗口本身被最小化时照样报 `hidden`。
+- 新发出的 `call` 先由应用暂缓，页面重新显示时再转给后台；已经在进行的调用照常完成。暂缓超过 50 秒的调用不再发出，直接以错误结束，免得在页面已经超时放弃之后才执行写入。
+- `open`、`leave` 和转给应用的快捷键都被忽略：用户这时在看别的页面。`setState` 照常保存。
+
+旧版 SDK 打包的页面收不到可见性消息，`visibilityState` 一直是 `visible`，但调用暂缓和上面的忽略规则同样适用。
+
+### 站点登录（SDK 0.3.0）
+
+插件在 manifest 声明 `browserSites: [{ id: 'forum', origin: 'https://forum.example', loginPath: '/login' }]` 后，页面后台可调用 `context.browser`：`open` 打开官网登录页，`status` 检查会话 Cookie 是否存在，`request` 使用该会话请求站点，`disconnect` 关闭该会话的标签、取消请求并清理浏览器数据。站点确实使用独立的 HTTPS 请求源时，在同一项中用 `requestOrigins` 明确列出；它们只供请求使用，不改变登录页和会话归属。新 core 声明 `plugin-browser-sessions`，插件进程握手声明 `browser-sessions`；旧 core 会得到 SDK 的升级提示。
+
+`request` 参数为 `{ action: 'request', site: 'forum', path: '/posts', method: 'POST', headers: { 'x-csrf-token': '...' }, body: '...' }`，返回 `{ connected, response: { status, headers, body } }`。默认请求登录源；使用声明的附属源时另传 `origin`。只允许声明的 HTTPS 源及相对路径、GET/POST 和受限请求头，不跟随重定向，不返回 Set-Cookie。正文最多 4 MiB；要发二进制（比如上传图片时自己组好的 multipart 表单），把字节用 base64 编码放进 `body`，并传 `bodyEncoding: 'base64'`，宿主解码后再发出（SDK 0.4.0，core 握手声明 `browser-binary`；旧 core 上 SDK 直接报错，不会把编码后的文字当正文发出去）。每次请求默认 12 秒；长轮询可用 `timeoutMs` 调整到最多 40 秒。响应最多 4 MiB，仍受页面一次调用 60 秒的限制。宿主不会自动重试写入。
+
+Cookie 由 desktop main 的 Chromium 会话保管，按 Antumi 数据目录、插件与站点隔离；core 校验声明和请求权限，保持无 Electron 依赖。普通浏览器标签和其他插件不会共享账号。`connected` 仅说明 Cookie 存在，插件须读取站点自己的当前用户接口来确认是否登录。页面状态、错误、日志中都不能存放凭据。打开登录页时只向发起调用的客户端通知显示标签；这个能力不开放给手机 RPC。应用关闭时不可用。
+
+本地验证运行 `pnpm test:plugin-sessions`（需要 Electron 和 OpenSSL）：独立临时目录、本地 HTTPS 站点，检查真实 Chromium 的 Cookie、隔离、POST、重定向和退出清理，不访问真实社区。
+
+### 大小与并发
+
+| | 上限 |
+|---|---|
+| 页面文件 | 合计 8 MiB，256 个 |
+| 一次调用 | 60 秒，输出 8 MiB，参数 3 MiB（旧版 64 KiB） |
+| 同时进行的调用 | 每个插件 4 个 |
+| `setState` | 32 KiB |
+
+页面文件由渲染进程从 core 取回（core 可能在另一台机器上），交给 Electron main 放在内存里，用 `antumi-plugin:` scheme 提供给 iframe；页面被卸载、窗口关闭或刷新时清掉。手机端不显示插件页面。
+
+带页面的插件装上后不要把 Antumi 降级到不支持页面的版本：旧版 core 读不了只有页面的插件记录，会启动失败。降级前先卸载这类插件。旧版 Antumi 安装带页面的插件会报清单格式错误。
 
 ## Manifest
 

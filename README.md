@@ -4,11 +4,12 @@
 
 **让已经装好的 Claude Code、Codex 等 Agent 自动排查 bug、替你在群里答疑、几个一起把活做完。**
 
-Bug 自动排查 · 智能体替你答疑 · 多 Agent 自由协作
-
 [![Release](https://img.shields.io/github/v/release/flyhero/antumi?include_prereleases&label=release&color=blue)](https://github.com/flyhero/antumi/releases)
 [![Downloads](https://img.shields.io/github/downloads/flyhero/antumi/total?color=blue)](https://github.com/flyhero/antumi/releases)
-![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-lightgrey)
+![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows-0078D4?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTAgMy40IDkuOCAydjkuNUgwek0xMSAxLjggMjQgMHYxMS40SDExek0wIDEyLjVoOS44VjIyTDAgMjAuNnpNMTEgMTIuNWgxM1YyNGwtMTMtMS44eiIvPjwvc3ZnPg==)
+![Linux](https://img.shields.io/badge/Linux-FCC624?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGVsbGlwc2UgY3g9IjEyIiBjeT0iMTMiIHJ4PSI3IiByeT0iMTAiIGZpbGw9IiMxMTEiLz48ZWxsaXBzZSBjeD0iMTIiIGN5PSIxNS41IiByeD0iNC42IiByeT0iNi41IiBmaWxsPSIjZmZmIi8+PGNpcmNsZSBjeD0iOS44IiBjeT0iNy4yIiByPSIxLjUiIGZpbGw9IiNmZmYiLz48Y2lyY2xlIGN4PSIxNC4yIiBjeT0iNy4yIiByPSIxLjUiIGZpbGw9IiNmZmYiLz48Y2lyY2xlIGN4PSIxMCIgY3k9IjcuNCIgcj0iLjciIGZpbGw9IiMxMTEiLz48Y2lyY2xlIGN4PSIxNCIgY3k9IjcuNCIgcj0iLjciIGZpbGw9IiMxMTEiLz48cGF0aCBkPSJNOS44IDkuNmg0LjRMMTIgMTEuNnoiIGZpbGw9IiNGN0E0MUQiLz48ZWxsaXBzZSBjeD0iOCIgY3k9IjIyLjQiIHJ4PSIzIiByeT0iMS40IiBmaWxsPSIjRjdBNDFEIi8+PGVsbGlwc2UgY3g9IjE2IiBjeT0iMjIuNCIgcng9IjMiIHJ5PSIxLjQiIGZpbGw9IiNGN0E0MUQiLz48L3N2Zz4=)
+[![Android](https://img.shields.io/badge/Android-3DDC84?logo=android&logoColor=white)](docs/MOBILE.md)
 [![License](https://img.shields.io/github/license/flyhero/antumi?color=lightgrey)](LICENSE)
 
 [下载](https://github.com/flyhero/antumi/releases) · [三分钟开始](#三分钟开始) · [主要能力](#主要能力) · [支持的 Agent](#支持的-agent) · [文档](#文档)
@@ -25,8 +26,12 @@ Bug 自动排查 · 智能体替你答疑 · 多 Agent 自由协作
   <a href="#支持的-agent" title="Antigravity"><img src="docs/assets/agents/antigravity.svg" alt="Antigravity" width="32" height="32" /></a>&nbsp;&nbsp;
   <a href="#支持的-agent" title="ZCode"><img src="docs/assets/agents/zcode.svg" alt="ZCode" width="32" height="32" /></a>&nbsp;&nbsp;
   <a href="#支持的-agent" title="Kimi Code"><img src="docs/assets/agents/kimi.svg" alt="Kimi Code" width="32" height="32" /></a>&nbsp;&nbsp;
-  <a href="#支持的-agent" title="Gemini CLI"><img src="docs/assets/agents/gemini.svg" alt="Gemini CLI" width="32" height="32" /></a>
+  <a href="#支持的-agent" title="Gemini CLI"><img src="docs/assets/agents/gemini.svg" alt="Gemini CLI" width="32" height="32" /></a>&nbsp;&nbsp;
+  <a href="#支持的-agent" title="CodeBuddy"><img src="docs/assets/agents/codebuddy.svg" alt="CodeBuddy" width="32" height="32" /></a>&nbsp;&nbsp;
+  <a href="#支持的-agent" title="CodeArts"><img src="docs/assets/agents/codearts.svg" alt="CodeArts" width="32" height="32" /></a>
 </p>
+
+<img src="docs/assets/showcase.png" alt="Antumi 桌面端，同一个会话在手机上接着做，同事在 Slack、飞书、钉钉群里 @ 智能体" />
 
 **一分钟看完：** 三个 bug，从收件箱一路做到合并。
 
@@ -56,7 +61,7 @@ GitHub、Jira、Linear、禅道的新 issue 一同步进来，Antumi 就自动�
 
 ### 智能体当你的替身，在群里答疑
 
-把智能体接到飞书、钉钉或 Slack，它就是你在群里的替身。同事 @ 它问「这个功能在哪实现的」「这个报错是什么原因」，也可以发截图；它读代码来回答，答案回在那条消息下面，你不用被打断。
+把智能体接到飞书、Lark、钉钉或 Slack，它就是你在群里的替身。同事 @ 它问「这个功能在哪实现的」「这个报错是什么原因」，也可以发截图；它读代码来回答，答案回在那条消息下面，你不用被打断。
 
 它只读不改，只能看你选的项目，密钥这类文件不提供。谁问了什么、它读了哪些文件、答了什么，都有记录。
 
@@ -82,7 +87,7 @@ GitHub、Jira、Linear、禅道的新 issue 一同步进来，Antumi 就自动�
 
 需要至少装好并登录一个 Agent CLI。ZCode 用桌面版或 `zcode-app-cli`；Antigravity 在设置 → 外部智能体里下载。第一次打开会检查 Agent 装没装、能不能用。安装包本身不需要 Node。
 
-1. **安装。** 到 [Releases](https://github.com/flyhero/antumi/releases) 下载：macOS Apple Silicon、Windows x64、Linux x64。macOS 只有 ad-hoc 签名，拖进「应用程序」后先去掉隔离属性，再打开：
+1. **安装。** 到 [Releases](https://github.com/flyhero/antumi/releases) 下载：macOS Apple Silicon / Intel、Windows x64、Linux x64。macOS 只有 ad-hoc 签名，拖进「应用程序」后先去掉隔离属性，再打开：
 
    ```bash
    xattr -dr com.apple.quarantine /Applications/Antumi.app
@@ -123,7 +128,7 @@ pnpm dev
 ANTUMI_HOME=~/.antumi-demo pnpm dev
 ```
 
-打包：`pnpm dist:mac`（Apple Silicon）、`pnpm dist:win`（x64，在 macOS 上也能打）、`pnpm dist:linux`（x64，只能在 Linux 上打，需要 `build-essential` 和 `python3`）。产物在 `packages/desktop/dist/`。步骤见[发版与打包](docs/RELEASING.md)。
+打包：`pnpm dist:mac`（Apple Silicon 和 Intel）、`pnpm dist:win`（x64，在 macOS 上也能打）、`pnpm dist:linux`（x64，只能在 Linux 上打，需要 `build-essential` 和 `python3`）。产物在 `packages/desktop/dist/`。步骤见[发版与打包](docs/RELEASING.md)。
 
 </details>
 
@@ -146,6 +151,8 @@ ANTUMI_HOME=~/.antumi-demo pnpm dev
 | [**ZCode**](docs/ZCODE.md) | `zcode app-server` | 修改前询问 · 自由编辑 · 规划 · 自主 · 只读 | ✓ | ✓ | ✓ |
 | [**Kimi Code**](docs/KIMI.md) | `kimi acp`（Node.js 版 2.3.2+） | Default · Plan · Auto | ✓ | ✓ | ✓ |
 | [**Gemini CLI**](docs/GEMINI.md) | `gemini --acp`（0.66.0+） | Default · Auto Edit · Plan | ✓ | — | ✓ |
+| [**CodeBuddy**](docs/CODEBUDDY.md) | `codebuddy --acp` | 每次询问 · 自动接受编辑 · 规划 · 自动审查 | ✓ | — | ✓ |
+| [**CodeArts**](docs/CODEARTS.md) | `codearts serve`（经 Antumi 的桥） | Build · 自动 · 规划 · 只读 | — | ✓ | ✓ |
 
 「只读委派」为 — 的，只能以可改代码的方式被委派。你自己聊的会话里，「全部放行」不会默认选中。定时和预约这类无人值守运行，新安装默认「全部放行」，可在设置 → 权限改成更谨慎的「稳妥」。设置 → 外部智能体还会列出 Antumi 认识、但尚未接入的 Agent CLI。
 
@@ -177,12 +184,20 @@ ANTUMI_HOME=~/.antumi-demo pnpm dev
 |---|---|
 | **使用** | [使用指南](docs/GETTING-STARTED.md) · [新问题自动排查](docs/SOURCE-AUTO-INVESTIGATION.md) · [用量账本](docs/USAGE-ANALYTICS.md) · [Markdown 主题](docs/MARKDOWN-THEMES.md) · [Antigravity](docs/ANTIGRAVITY.md) · [DeepSeek Harness](docs/DEEPSEEK.md) · [ZCode](docs/ZCODE.md) · [Kimi Code](docs/KIMI.md) · [Gemini CLI](docs/GEMINI.md) |
 | **扩展** | [任务来源插件](docs/PLUGINS.md)：GitHub、Jira、Linear、禅道，或自己写一个 |
-| **开发** | [技术架构](docs/ARCHITECTURE.md) · [聊天平台接入](docs/CHANNELS.md) · [手机端](docs/MOBILE.md) · [AGENTS.md](AGENTS.md) · [DESIGN.md](DESIGN.md) |
+| **开发** | [技术架构](docs/ARCHITECTURE.md) · [聊天平台接入](docs/CHANNELS.md) · [手机端](docs/MOBILE.md) · [WSL](docs/WSL.md) · [AGENTS.md](AGENTS.md) · [DESIGN.md](DESIGN.md) |
 | **发布** | [发版与打包](docs/RELEASING.md) · [更新日志](CHANGELOG.md) |
 
-## 参与
+## 社区与支持
 
-用下来哪里别扭、想接哪个 Agent，欢迎提 [issue](https://github.com/flyhero/antumi/issues)。
+- **微信群**：扫码加入交流群，聊用法、提反馈、看更新：
+
+  <img src="docs/assets/wechat-group.jpg" alt="Antumi 微信交流群" width="200" />
+
+- **Issues**：用下来哪里别扭、想接哪个 Agent，欢迎提 [issue](https://github.com/flyhero/antumi/issues)。
+- **LINUX DO**：感谢 [LINUX DO](https://linux.do) 社区的支持。
+- **V2EX**：感谢 [V2EX](https://www.v2ex.com) 社区的支持。
+
+## 参与
 
 改代码前先读 [AGENTS.md](AGENTS.md) 和 [DESIGN.md](DESIGN.md)。提交前跑：
 
@@ -191,7 +206,3 @@ pnpm typecheck && pnpm test
 ```
 
 桌面端改动再加 `pnpm build`。
-
-## 友情链接
-
-- [LINUX DO](https://linux.do)：新的理想型社区

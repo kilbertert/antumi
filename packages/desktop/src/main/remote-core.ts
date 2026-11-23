@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import type { CoreEndpoint } from '@antumi/protocol'
 import { antumiPaths, readCoreEndpoint, writeCoreEndpoint } from '@antumi/protocol/node'
+import type { RemoteBackendProblem } from '../shared/backend-location'
 
 // Remote core: the app's window runs here, the agents and their git checkouts run on another
 // machine. The boundary already exists in Antumi (desktop is only a client; core owns tasks,
@@ -289,6 +290,58 @@ export async function remoteEndpointIfUp(config: RemoteCoreConfig): Promise<Core
   const local = await readCoreEndpoint()
   if (local && local.port === config.corePort && (await waitForPort(config.corePort, Date.now() + 800))) return local
   return null
+}
+
+// The remote backend as one of AppBackend's sessions (the shape WslSession sets): the ssh forward
+// is its lifetime, and the endpoint it leaves in core.json is the tunnel's. Nothing here falls
+// back to this machine's core — that silent swap is the failure the mode exists to prevent.
+export class RemoteSession {
+  private link: RemoteLink | null = null
+  private current: CoreEndpoint | null = null
+
+  constructor(private readonly config: RemoteCoreConfig) {}
+
+  // The tunnel up, or why not — the problem the settings page and the waiting banner show.
+  async start(): Promise<RemoteBackendProblem | null> {
+    this.link ??= createRemoteLink(this.config)
+    try {
+      this.current = await this.link.ensure()
+      return null
+    } catch (error) {
+      return { kind: 'remote-link', detail: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  async endpoint(): Promise<CoreEndpoint | null> {
+    return this.current
+  }
+
+  // The remote daemon belongs to its host; this app does not retire it.
+  async replaceOldDaemon(): Promise<void> {}
+
+  // The remote core cannot reach a browser host on this machine yet (docs/REMOTE-CORE.md §4.3),
+  // and main does not start one for it — nothing to hand over.
+  setBrowserHost(): void {}
+
+  // A path picked on this machine leads nowhere on the far side; null is the honest answer.
+  linuxPath(): string | null {
+    return null
+  }
+
+  // And a remote path opens here only through core, never as a file of this machine's.
+  windowsPath(): string | null {
+    return null
+  }
+
+  homeFolder(): string | null {
+    return null
+  }
+
+  stop(): void {
+    this.link?.stop()
+    this.link = null
+    this.current = null
+  }
 }
 
 export { sleep as remoteSleep }

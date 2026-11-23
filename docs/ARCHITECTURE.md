@@ -70,7 +70,7 @@
 
 ### 聊天平台
 
-智能体可以接到聊天平台上（目前是 Slack、飞书和钉钉），同事 @ 它提问。core 在有接入时启动第二个子进程「聊天平台网关」（`core/src/channel-gateway-main.ts`，打包后是 `channel-gateway.mjs`），由它向平台发起长连接；它只经 IPC 和 core 说话，手里没有 core 的 token。去重、谁能问、每天几次、哪个会话、发什么回去，都在 core 的 `ChannelService` 里。回答问题的 Agent 是锁死启动的（descriptor 的 `capabilities.lockdown`）：没有自己的工具，不加载用户的设置、MCP 和技能，只有 core 提供的几个项目读取工具，环境变量也是清过的（daemon 的 `spawnPipeClean`）。这类会话不进任何列表，客户端只能查看、停止和删除。设计、协议细节和验证情况见 [CHANNELS.md](CHANNELS.md)。
+智能体可以接到聊天平台上（目前是 Slack、飞书、Lark 和钉钉），同事 @ 它提问。core 在有接入时启动第二个子进程「聊天平台网关」（`core/src/channel-gateway-main.ts`，打包后是 `channel-gateway.mjs`），由它向平台发起长连接；它只经 IPC 和 core 说话，手里没有 core 的 token。去重、谁能问、每天几次、哪个会话、发什么回去，都在 core 的 `ChannelService` 里。回答问题的 Agent 是锁死启动的（descriptor 的 `capabilities.lockdown`）：没有自己的工具，不加载用户的设置、MCP 和技能，只有 core 提供的几个项目读取工具，环境变量也是清过的（daemon 的 `spawnPipeClean`）。这类会话不进任何列表，客户端只能查看、停止和删除。设计、协议细节和验证情况见 [CHANNELS.md](CHANNELS.md)。
 
 ### 状态流转
 
@@ -193,7 +193,7 @@
 ### 任务来源与收件箱
 
 
-任务除了手写，也可以从 issue 系统导入。每种系统是一个**任务来源**，GitHub、Jira、Linear 和禅道都通过独立来源插件接入，在「设置 → 插件」推荐列表选择，从对应插件的 GitHub Release 下载后安装；新安装的 Antumi 不预装任务来源。插件只提供来源，不扩展 Agent 或界面，见 [任务来源插件](PLUGINS.md)。
+任务除了手写，也可以从 issue 系统导入。每种系统是一个**任务来源**，GitHub、Jira、Linear 和禅道都通过独立来源插件接入，在「设置 → 插件」推荐列表选择，从对应插件的 GitHub Release 下载后安装；新安装的 Antumi 不预装任务来源。插件除了来源还可以自带页面（在隔离的 iframe 里显示，侧栏多一个入口），不扩展 Agent，见 [插件](PLUGINS.md)。
 
 四个来源的源码统一在 `flyhero/antumi-plugins` 的 `plugins/<slug>` 目录，插件保持独立版本和 ZIP，主仓库只维护 `plugins-recommended.json` 中的推荐名称、说明、仓库地址与标签前缀，不附带来源插件的 ZIP 或程序。core 在用户点击安装时从对应插件标签前缀下版本最高的正式 Release 下载 ZIP，校验 ID 与协议后安装；查看列表、启动和构建都不会下载来源插件。旧版已安装的插件继续可用，旧 Jira 配置在主动安装独立插件后继续使用。SDK 在 `packages/plugin-sdk` 维护，协议唯一来源为 `packages/protocol`，来源图片通过可选字段传输。
 
@@ -506,6 +506,10 @@ ZCode 不说 ACP，有自己的 driver（`agents/zcode/zcode-app-server.ts`）�
 
 Kimi Code 使用官方 `kimi acp` 和通用 ACP driver，dialect 负责四种原生模式、工具命名，以及由权限请求承载的单选提问和计划审批。需要 Node.js 版 CLI 2.3.2 以上，恢复会话沿用标准 ACP；原生 fork 会保留来源 MCP，改用交接以隔离会话权限。安装、权限及用量边界见 [Kimi Code](KIMI.md)。
 
+CodeBuddy 使用官方 `codebuddy --acp` 和通用 ACP driver，dialect 负责五种原生模式、按工具调用标题命名工具，以及由 `ExitPlanMode` 权限请求承载的计划审批：它批准后会悄悄回到规划前的模式，dialect 声明 `planApprovalSetsMode`，driver 随批准一起把模式切到计划的执行模式。子 Agent 跑在主会话里，dialect 的 `subagentOf` 按 `_meta` 里的父调用把它的步骤归到 Task 卡片；它的 ACP 一行最多 32 MiB，`maxLineBytes` 让 driver 发送前拒绝更长的消息。它的登录信息全机共用一份，其余账号用 API Key（见「账号」）。细节见 [CodeBuddy](CODEBUDDY.md)。
+
+CodeArts（华为云码道）的 CLI 带着 OpenCode 1 的 ACP 服务却拒绝启动它（`acp` 在它不支持的命令名单里），所以 Antumi 带一个桥（`codearts-bridge-main.ts`，打包为 `codearts-bridge.mjs`，像 MCP 服务一样由 Electron 自带的 Node 运行）：为每个进程启动只属于它的 `codearts serve`（本机端口、随机密码），一侧说 ACP，一侧调它的 REST 接口、订阅事件流，于是通用 ACP driver 照常运行它，转换逻辑在 `agents/codearts/codearts-bridge.ts`。它的权限服务只按自己的运行模式和黑白名单回答，不看配置里 agent 的规则，改文件也从不询问：规划和只读的 agent 在配置里拒绝编辑和命令，这些工具因此不提供给模型；自动、全部放行和参考项目由启动时写进会话目录、经 `OPENCODE_CONFIG_CONTENT` 的 `plugin` 加载的权限插件执行，它的 `permission.ask` 钩子先于码道的规则作答。插件加载后写一个就绪文件，`launch.ready` 等不到就拒绝启动。它在 TUI 之外只认环境变量里的 AK/SK，并只在被信任的目录里启动。细节见 [CodeArts](CODEARTS.md)。
+
 ### 项目 Star
 
 设置 → 支持与反馈集中提供项目地址、GitHub Star 和 GitHub Issues 反馈入口，交流尚未开放时显示文字占位；关于页保留版本、更新、连接状态、Git 与快捷键。支持页可查询并为 `flyhero/antumi` 点 Star。desktop 仅调用 `support.starStatus` / `support.star`，通过 `project-star` 能力判断 core 是否支持；旧 core 只提供 GitHub 网页入口。状态不写入本机偏好，进入支持页或返回窗口时自动检查，以 GitHub 的响应为准，不提供手动检测按钮。
@@ -542,7 +546,7 @@ desktop 在首次连接且环境、供应商和任务来源数据到齐后启动
 
 Agent 可用之后、任务来源之前是「接着聊」一步：从零用一个新工具，不如在已有的工作上接着做。引导一开始就在后台调 `sessionImports.list`（`external-sessions.ts`，失败不报错，当作没有），到这一步时多半已有结果；还没回来时停在这一步显示「正在找」，不先跳到任务来源再跳回来。可接着聊的会话（`resumable-sessions.ts`）是未导入、目录还在、所属 Agent 已启用且没被确认未登录的；数量按全部算，列出最新的 3 个，每个目录只取一个。点「接着聊」导入这一个并打开它，「查看全部」去设置 → 导入会话，「从新会话开始」跳过；没有可接着聊的会话或 core 不支持导入时整步跳过。总览在还没有任何任务和会话时显示同样的「接着聊」卡片，引导这一步还没做完时不显示，免得重复；退出了引导，它还在。
 
-宠物引导在工作区下方预留固定区域，进入设置仍可见，输入、弹层和终端保持原有交互；开启引导时暂停普通宠物，关闭宠物则只显示文字和按钮。设置页导航读取 store 中的目标，支持引导在设置已打开时切换到正确章节。左下角齿轮旁的帮助菜单提供「使用指南」和「检查使用环境」；关于页只保留版本及产品信息。使用指南是静态配置与功能查阅，不读取完成状态、不创建会话。阅读时暂时隐藏宠物引导并保留进度，离开文档后恢复；从帮助启动环境检查会关闭文档。技巧的场景提示独立于首次引导。
+宠物引导浮在状态栏上方，不占工作区高度，卡片以外仍可操作；进入设置仍可见，输入、弹层和终端保持原有交互。开启引导时暂停普通宠物，关闭宠物则只显示文字和按钮。设置页导航读取 store 中的目标，支持引导在设置已打开时切换到正确章节。左下角齿轮旁的帮助菜单提供「使用指南」和「检查使用环境」；关于页只保留版本及产品信息。使用指南是静态配置与功能查阅，不读取完成状态、不创建会话。阅读时暂时隐藏宠物引导并保留进度，离开文档后恢复；从帮助启动环境检查会关闭文档。技巧的场景提示独立于首次引导。
 
 ### Agent CLI 版本与升级
 
@@ -653,12 +657,14 @@ Agent 可用之后、任务来源之前是「接着聊」一步：从零用一�
 
 ### 账号
 
-Claude Code 和 Codex 可以登录多个账号（描述符的 `capabilities.accounts`，适配器的 `accounts`），设置 → Agent → 账号（`agent-accounts.ts`）维护。和服务商走同一条路：**每次启动注入环境变量，不改 Agent 自己的配置**——每个账号一个配置目录，进程带 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` 指向它。只作用于 Agent 自己的路由；走服务商的阶段不看账号。
+Claude Code、Codex 和 CodeBuddy 可以用多个账号（描述符的 `capabilities.accounts`，适配器的 `accounts`），设置 → Agent → 账号（`agent-accounts.ts`）维护。和服务商走同一条路：**每次启动注入环境变量，不改 Agent 自己的配置**——每个账号一个配置目录，进程带 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `CODEBUDDY_CONFIG_DIR` 指向它。只作用于 Agent 自己的路由；走服务商的阶段不看账号。
 
 - **本机账号**（id `default`）就是用户自己的目录（`$CLAUDE_CONFIG_DIR` 或 `~/.claude`，`$CODEX_HOME` 或 `~/.codex`），不注入任何变量，删不掉。其它账号在 `<ANTUMI_HOME>/agent-accounts/<agent>/<id>/`，路径创建后不变：Claude Code 2.1 起在 macOS 钥匙串里按 `CLAUDE_CONFIG_DIR` 的原文起名（`Claude Code-credentials-<sha256(NFC(路径)) 前 8 位>`），换个写法就找不到登录。列表、当前账号和自动换号开关存在 `agent-accounts.json`；登录凭据由 CLI 自己存（钥匙串或目录里的文件），Antumi 只读、从不刷新 token。
 - **共享**（`agent-account-home.ts`）：账号目录里的条目是指向本机目录的软链（Windows 上目录用 junction），所以会话历史只有一份，换号后原生 session 原样恢复，不走移交。Claude 链 `projects`、`file-history`、`todos`、`plans`、`shell-snapshots`、`session-env`、`paste-cache`、`tasks`、`transcripts`、`history.jsonl`（本机没有就先建）和 `skills`、`plugins`、`agents`、`commands`、`output-styles`（有才链）；不链 `sessions/`（CLI 自己的运行进程登记）。`settings.json` 每次启动前复制一份（CLI 写它是写新文件再改名，软链会被换成普通文件），`CLAUDE.md` 是一行 `@<本机目录>/CLAUDE.md`，`.claude.json` 合进本机的 `mcpServers` 和各项目的 MCP、信任设置，`oauthAccount` 等账号自己的键不动。Codex 除 `auth.json` 和数据库的 `-wal`/`-shm`/`-journal` 外，本机目录顶层每一项都链过去（`sessions`、`archived_sessions`、`history.jsonl` 本机没有就先建）。链之前账号目录里已有的同名目录，里面的东西先挪进本机目录。
 - **登录**：添加账号时 core 在终端面板里跑 `claude auth login` / `codex login`（argv，不经 shell），带该账号的环境变量；终端结束后读登录状态和邮箱（Claude 的 `.claude.json` 里 `oauthAccount.emailAddress`，Codex `auth.json` 里 id token 的 email）。删除账号先用它的环境变量跑 `auth logout` / `logout`，再删软链和目录，不碰链到的本机文件。
 - **启动**：每个阶段启动时取 Agent 的当前账号（`AgentAccountStore.launch`），先补齐目录再注入，账号记进 `conversation_stages.account`。标题、提交说明这类小任务和模型列表探测也用当前账号。状态栏手动切换只影响之后启动的进程，运行中的阶段保持原账号。
+- **API Key 账号**（描述符的 `accountKeys`，适配器 `accounts.keys`，feature `account-keys`）：CodeBuddy 的登录全机只有一份（不在配置目录里），所以本机账号之外的账号都是 API Key，各带一个版本（国际版、国内版、iOA）。`accounts.add` 带 `key` 时不开终端，Key 存进 `CredentialStore`（`agent-account/<agent>/<id>`），账号文件只记版本（`AgentAccount.edition`）；启动时 `keys(apiKey, edition)` 给出 `CODEBUDDY_API_KEY` 和 `CODEBUDDY_INTERNET_ENVIRONMENT`（国际版设成空，免得继承用户 shell 里的值）。`accounts.setKey` 换 Key 或版本；删除时删 Key，不跑退出登录。CodeBuddy 的版本缓存在配置目录的 `local_storage` 和 `settings.json` 里，这两样不共享，共享的是 `projects`、技能、`agents`、`commands`、`plugins`、`.mcp.json`、`models.json`。本机账号的登录在终端里跑 `codebuddy` 的交互界面，起在 `<agent-accounts>/codebuddy/.sign-in` 这个空目录（`signInFolder`），免得它对主目录弹出信任警告；是否已登录看它数据目录 `auth/` 里有没有 `<哈希>.info` 而没有 `.logged-out`。
+- **会话的账号**（feature `conversation-accounts`）：会话可以为它的 Agent 选定一个账号，存在会话选项里（`chat_options.<agent>.account`，不加列），`Conversation.chatOptions.account` 告诉客户端。`conversations.create` 带 `account`，或在输入框下方用 `conversations.setAccount` 换：空闲的 Agent 停掉、立即在新账号上恢复同一个 session（任务的会话只停，由任务接着跑），回合进行中拒绝；`null` 回到跟随当前账号。之后每次启动都用它（`keptAccount`，账号删掉了就回到当前账号），不受状态栏切换影响；撞上额度时也不换号，等这个账号的重置（`UsageLimitResumes.switchedTo` 和 `leaveSpentAccount` 都跳过它）。小助手沿用父会话的账号。模型列表探测仍用当前账号，两个版本模型不同时，新建页列出的是当前账号的模型。
 - **额度**：`UsageService` 按 Agent + 账号读，每个账号用自己的凭据请求用量接口；运行中的阶段上报的额度记到它所在的账号（`AgentUsage.account`）。定时任务、自动续跑和例程看的是当前账号的额度；开着自动换号且所有账号都用完时，看最早重置的那个。
 - **自动换号**（默认开）：一轮撞上额度上限时（`UsageLimitResumes.observe`），阶段在账号 X 上、当前账号还是 X，就按 `pickAccount`（有余量的优先、再看用得少的，跳过未登录和已用完的）换当前账号；别的会话已经换走、新账号还有额度，就直接用它。然后建一个立即执行的续跑（`ScheduledTarget.switchedTo`），续跑先把空闲在旧账号上的阶段停掉（`leaveSpentAccount`），再在新账号上恢复同一个 session、发「继续」；卡片显示「已换到账号…继续」。没有可换的账号就和以前一样等重置。轮询发现当前账号已用完时也会换。
 - **待实测**：两个真实订阅账号下，钥匙串命名、跨账号恢复同一个 session（Claude 的思考签名、Codex 的加密推理是否被另一个账号拒绝）、Codex 的 sqlite 经软链读写。若跨账号恢复被拒，就把账号并进 route key，换号改走移交。
@@ -759,11 +765,11 @@ Windows 的 PowerShell 里这样设：`$env:ANTUMI_HOME = "$HOME\.antumi-demo"; 
 ## 8. 打包与安装
 
 
-macOS（Apple Silicon）可以打包成 dmg：
+macOS 可以打包成 dmg，Apple 芯片和 Intel 各一个：
 
 ```bash
 pnpm install
-pnpm dist:mac     # 产物在 packages/desktop/dist/Antumi-<版本>-macos-arm64.dmg
+pnpm dist:mac     # 产物在 packages/desktop/dist/Antumi-<版本>-macos-arm64.dmg 和 -macos-x64.dmg
 ```
 
 `dist:mac` 依次执行 electron-vite 构建、`bundle-backend`（esbuild 把 core、daemon 和 MCP 服务各打成一个 JS，附上 node-pty 的 macOS 预编译）和 electron-builder。打包的 App 由 Electron 自带的 Node 运行这些文件（`ELECTRON_RUN_AS_NODE`），所以**装了 App 的机器不需要 Node 和 pnpm**，只需要 `claude` / `codex` CLI 本身。
@@ -838,7 +844,8 @@ pnpm dist:win     # 打包 Windows 安装包
 ## 10. 已知限制与下一步
 
 - **验收**：按项目配置的测试命令在 worktree 里跑，结果放进检查器；合并分支
-- **SSH / WSL 执行宿主**：给 git、PTY 操作加上 `hostId`
+- **WSL**：后端跑在发行版里、Windows 只留界面，设计见 [WSL.md](WSL.md)；「远程主机」是同一条后端位置的第三个选项，见 [REMOTE-CORE.md](REMOTE-CORE.md)
+- **SSH 执行宿主**：给 git、PTY 操作加上 `hostId`
 - **Windows**：代码按 Windows 写好了，也有单元测试，但还没在 Windows 实机上验证过，也没有 Windows CI 和代码签名，应用内更新也没在实机上试过；named pipe 没有设 ACL；「用…打开」的应用列表只有 macOS 有
 
 ## 需求与方案

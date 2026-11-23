@@ -4,7 +4,7 @@ import { MAX_TASK_REPOS } from './task-limits'
 // An agent on a chat platform (docs/CHANNELS.md): colleagues ask it questions there, and it answers
 // from the projects it is given, locked down. What core and the desktop share about it, zod only.
 
-export const CHANNEL_PLATFORMS = ['slack', 'feishu', 'dingtalk'] as const
+export const CHANNEL_PLATFORMS = ['slack', 'feishu', 'lark', 'dingtalk'] as const
 export const ChannelPlatform = z.enum(CHANNEL_PLATFORMS)
 export type ChannelPlatform = z.infer<typeof ChannelPlatform>
 

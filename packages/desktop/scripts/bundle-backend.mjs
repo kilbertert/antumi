@@ -21,6 +21,13 @@ cpSync(path.join(repo, 'packages/dsh-runtime/dist/runtime.tgz'), path.join(out, 
 // Some bundled CJS dependencies call require() at runtime; give the ESM output one.
 const banner = `import { createRequire as __antumiRequire } from 'node:module';\nconst require = __antumiRequire(import.meta.url);\n`
 
+// With --wsl, the two programs only a backend inside a WSL distro has, which a Windows app runs
+// there (docs/WSL.md): the tunnel helper, and what tells it which of daemon and core to start. No
+// app's own backend carries them.
+const forWsl = process.argv.includes('--wsl')
+  ? [['wsl-tunnel', 'packages/core/src/wsl-tunnel-main.ts'], ['backend-control', 'packages/core/src/backend-control-main.ts']]
+  : []
+
 for (const [name, entry] of [
   ['daemon', 'packages/daemon/src/main.ts'],
   ['core', 'packages/core/src/main.ts'],
@@ -29,7 +36,10 @@ for (const [name, entry] of [
   // The phone gateway, which core forks beside itself (mobile-service.ts).
   ['gateway', 'packages/core/src/gateway-main.ts'],
   // The channel gateway, likewise (channel-service.ts): the chat platforms' connections.
-  ['channel-gateway', 'packages/core/src/channel-gateway-main.ts']
+  ['channel-gateway', 'packages/core/src/channel-gateway-main.ts'],
+  // CodeArts' bridge, which an agent stage runs (codearts-bridge-command.ts).
+  ['codearts-bridge', 'packages/core/src/codearts-bridge-main.ts'],
+  ...forWsl
 ]) {
   await build({
     entryPoints: [path.join(repo, entry)],

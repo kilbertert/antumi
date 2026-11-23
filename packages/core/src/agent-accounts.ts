@@ -1,16 +1,17 @@
 import { agentCliAccess } from './agent-cli-access'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { lstat, readdir, rm, unlink } from 'node:fs/promises'
+import { lstat, mkdir, readdir, rm, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
 import {
   AGENT_KINDS, AgentAccountId, AgentKind, DEFAULT_ACCOUNT, accountsSupported, activeAccount, agentDescriptor, pickAccount, quotaVerdict, accountUsage,
-  type AgentAccount, type AgentAccounts, type AgentUsage, type Terminal
+  type AccountKey, type AgentAccount, type AgentAccounts, type AgentUsage, type Terminal
 } from '@antumi/protocol'
 import { planLaunch, readJsonIfExists, writePrivateJson } from '@antumi/protocol/node'
 import { adapterOf } from './agents'
 import type { AccountSupport } from './agents/agent-adapter'
+import type { CredentialStore } from './credential-store'
 import { Rejection } from './rejection'
 
 // What the file keeps of an account; whether it is signed in is read again at each load.
@@ -20,7 +21,9 @@ const Saved = z.object({
   label: z.string().nullable(),
   email: z.string().nullable(),
   plan: z.string().nullable(),
-  createdAt: z.number()
+  createdAt: z.number(),
+  // An account that signs in with an API key, for this edition; its key is in the credential store.
+  edition: z.string().nullable().optional()
 })
 type Saved = z.infer<typeof Saved>
 const SavedFile = z.object({
@@ -34,7 +37,7 @@ const LOGOUT_TIMEOUT_MS = 30_000
 
 export type AccountDeps = {
   // Signs in, in a terminal the user follows.
-  signIn(argv: { command: string; args: readonly string[] }, env: Record<string, string>, title: string, agent?: AgentKind): Promise<Terminal>
+  signIn(argv: { command: string; args: readonly string[] }, env: Record<string, string>, title: string, agent?: AgentKind, cwd?: string): Promise<Terminal>
   waitForExit(terminalId: string): Promise<number | null>
   // An account was signed in, or out, or removed: its usage is worth reading now, or no more.
   accountChanged(agent: AgentKind, id: string, removed: boolean): void
@@ -42,11 +45,23 @@ export type AccountDeps = {
   newId?(): string
   // Runs the CLI's sign-out to its end, whatever it says.
   signOut?(command: string, args: readonly string[], env: Record<string, string>): Promise<void>
+  // Where an account's API key is kept, never in the accounts file.
+  credentials?: Pick<CredentialStore, 'get' | 'set' | 'delete'>
 }
+
+const KEY_CREDENTIAL = 'agent-account'
+const keyInstance = (agent: AgentKind, id: string) => `${agent}/${id}`
 
 // What an agent's process starts on: the account, and the variables pointing it at its folder
 // (none for the user's own).
 export type AccountLaunch = { id: string; env: Record<string, string> | null }
+
+// The edition a key is for, as the agent's descriptor names it.
+function keyEdition(agent: AgentKind, edition: string): string {
+  const editions = agentDescriptor(agent).accountKeys?.editions ?? []
+  if (!editions.some((each) => each.id === edition)) throw new Rejection('account-key-unsupported', `${agentDescriptor(agent).label} 没有这个版本：${edition}`)
+  return edition
+}
 
 function support(agent: AgentKind): AccountSupport {
   const accounts = adapterOf(agent).accounts
@@ -117,7 +132,21 @@ export class AgentAccountStore {
     const home = this.home(agent, id)
     if (!home) return { id, env: null }
     await accounts.prepare(home)
-    return { id, env: accounts.env(home) }
+    return { id, env: { ...accounts.env(home), ...this.keyEnv(agent, id, accounts) } }
+  }
+
+  // An API key account's variables; nothing for one signed in in a terminal.
+  private keyEnv(agent: AgentKind, id: string, accounts: AccountSupport): Record<string, string> {
+    const edition = this.find(agent, id)?.edition
+    if (!edition) return {}
+    const apiKey = this.deps.credentials?.get(KEY_CREDENTIAL, keyInstance(agent, id))?.payload.apiKey
+    if (!apiKey || !accounts.keys) throw new Rejection('account-key-missing', '这个账号没有 API Key，请在设置 → 账号里重新填写')
+    return accounts.keys(apiKey, edition)
+  }
+
+  // Whether it is one of the agent's accounts: a conversation may keep one that was removed since.
+  exists(agent: AgentKind, id: string): boolean {
+    return this.find(agent, id) !== null
   }
 
   // Usage also reads the user's own login for agents without managed accounts.
@@ -135,16 +164,47 @@ export class AgentAccountStore {
     await this.check(agent, id)
   }
 
-  async add(agent: AgentKind, label: string | null): Promise<{ account: AgentAccount; terminal: Terminal }> {
+  // With a key, signed in with it at once; without, in a terminal, unless the agent takes only keys.
+  async add(agent: AgentKind, label: string | null, given?: AccountKey): Promise<{ account: AgentAccount; terminal?: Terminal }> {
     const accounts = support(agent)
+    const keys = agentDescriptor(agent).accountKeys
+    if (given && !(keys && accounts.keys)) throw new Rejection('account-key-unsupported', `${agentDescriptor(agent).label} 不支持 API Key 账号`)
+    if (!given && keys?.only) throw new Rejection('account-key-required', `${agentDescriptor(agent).label} 的其他账号要用 API Key 添加`)
+    const edition = given ? keyEdition(agent, given.edition) : null
     return this.serially(async () => {
       const id = this.deps.newId?.() ?? randomBytes(4).toString('hex')
       const home = this.home(agent, id)!
       await accounts.prepare(home)
-      await this.write([...this.saved, { id, agent, label: label || null, email: null, plan: null, createdAt: Date.now() }])
+      if (given) await this.saveKey(agent, id, given.apiKey)
+      await this.write([...this.saved, { id, agent, label: label || null, email: null, plan: null, createdAt: Date.now(), ...(edition ? { edition } : {}) }])
+      if (given) {
+        this.signedIn.set(key(agent, id), true)
+        this.deps.changed(this.list())
+        this.deps.accountChanged(agent, id, false)
+        return { account: this.require(agent, id) }
+      }
       const terminal = await this.signIn(agent, id)
       return { account: this.require(agent, id), terminal }
     })
+  }
+
+  async setKey(agent: AgentKind, id: string, given: AccountKey): Promise<AgentAccount> {
+    support(agent)
+    const edition = keyEdition(agent, given.edition)
+    return this.serially(async () => {
+      const current = this.require(agent, id)
+      if (!current.edition) throw new Rejection('account-key-unsupported', '这个账号在终端里登录，不用 API Key')
+      await this.saveKey(agent, id, given.apiKey)
+      this.signedIn.set(key(agent, id), true)
+      await this.write(this.upsert({ ...this.find(agent, id)!, edition }))
+      this.deps.accountChanged(agent, id, false)
+      return this.require(agent, id)
+    })
+  }
+
+  private async saveKey(agent: AgentKind, id: string, apiKey: string): Promise<void> {
+    if (!this.deps.credentials) throw new Rejection('account-key-unsupported', '无法保存 API Key')
+    await this.deps.credentials.set(KEY_CREDENTIAL, keyInstance(agent, id), { kind: 'api-key', payload: { apiKey }, account: null, updatedAt: Date.now() })
   }
 
   async login(agent: AgentKind, id: string): Promise<Terminal> {
@@ -172,7 +232,9 @@ export class AgentAccountStore {
     return this.serially(async () => {
       this.require(agent, id)
       const home = this.home(agent, id)!
-      await agentCliAccess.use(agent, () => (this.deps.signOut ?? runQuietly)(agentDescriptor(agent).cli, accounts.logout, accounts.env(home)))
+      // A key account has nothing signed in to sign out of: its key goes instead.
+      if (this.find(agent, id)?.edition) await this.deps.credentials?.delete(KEY_CREDENTIAL, keyInstance(agent, id))
+      else await agentCliAccess.use(agent, () => (this.deps.signOut ?? runQuietly)(agentDescriptor(agent).cli, accounts.logout, accounts.env(home)))
       const active = { ...this.active }
       if (active[agent] === id) delete active[agent]
       this.active = active
@@ -239,10 +301,13 @@ export class AgentAccountStore {
 
   private async signIn(agent: AgentKind, id: string): Promise<Terminal> {
     const accounts = support(agent)
+    if (this.find(agent, id)?.edition) throw new Rejection('account-key-unsupported', '这个账号用 API Key 登录，请在设置 → 账号里更换 Key')
     const home = this.home(agent, id)
     const name = this.require(agent, id)
     const title = `登录 ${agentDescriptor(agent).label}${name.label ? `（${name.label}）` : ''}`
-    const terminal = await agentCliAccess.use(agent, () => this.deps.signIn({ command: agentDescriptor(agent).cli, args: accounts.login }, home ? accounts.env(home) : {}, title, agent))
+    const folder = accounts.signInFolder ? path.join(this.root, agent, '.sign-in') : undefined
+    if (folder) await mkdir(folder, { recursive: true, mode: 0o700 })
+    const terminal = await agentCliAccess.use(agent, () => this.deps.signIn({ command: agentDescriptor(agent).cli, args: accounts.login }, home ? accounts.env(home) : {}, title, agent, folder))
     void this.deps.waitForExit(terminal.id).then(() => this.check(agent, id)).then(() => this.deps.accountChanged(agent, id, false))
     return terminal
   }
@@ -262,7 +327,8 @@ export class AgentAccountStore {
     const home = this.home(agent, id)
     // Unknown keeps what was last known: a failed check is no sign-out.
     const known = this.signedIn.get(key(agent, id)) ?? false
-    const signedIn = adapter.signedIn ? await adapter.signedIn(home).catch(() => null) ?? known : false
+    const keyed = this.find(agent, id)?.edition
+    const signedIn = keyed ? Boolean(this.deps.credentials?.get(KEY_CREDENTIAL, keyInstance(agent, id))) : adapter.signedIn ? await adapter.signedIn(home).catch(() => null) ?? known : false
     const { email } = await adapter.accounts?.identity(home).catch(() => ({ email: null })) ?? { email: null }
     const current = this.find(agent, id)
     const changed = this.signedIn.get(key(agent, id)) !== signedIn

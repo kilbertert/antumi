@@ -71,13 +71,15 @@ type ScreenProps = {
   // Content that scrolls; false for a screen that lays itself out (the chat).
   scroll?: boolean
   onRefresh?: () => Promise<void>
+  // Scrolled to near the bottom: a list showing part of what it has shows more.
+  onEndReached?: () => void
   // The screen's main action, floating at the bottom centre where a thumb reaches it.
   floating?: ReactNode
   // false for a screen about the app rather than the computer, which its link says nothing to.
   linkBanner?: boolean
 }
 
-export function Screen({ title, subtitle, large = false, onBack, actions, children, scroll = true, onRefresh, floating, linkBanner = true }: ScreenProps) {
+export function Screen({ title, subtitle, large = false, onBack, actions, children, scroll = true, onRefresh, onEndReached, floating, linkBanner = true }: ScreenProps) {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
   const [refreshing, setRefreshing] = useState(false)
@@ -112,6 +114,10 @@ export function Screen({ title, subtitle, large = false, onBack, actions, childr
         <KeyboardAwareScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space.xxl + (floating ? FLOATING_ROOM : 0) }]}
+          onScroll={onEndReached ? ({ nativeEvent: { layoutMeasurement, contentOffset, contentSize } }) => {
+            if (layoutMeasurement.height + contentOffset.y >= contentSize.height - END_REACHED) onEndReached()
+          } : undefined}
+          scrollEventThrottle={onEndReached ? 100 : undefined}
           refreshControl={refresh ? <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={theme.textMuted} colors={[theme.accent]} /> : undefined}
         >
           {heading}
@@ -185,6 +191,8 @@ export function FloatingButton({ icon: Icon, label, onPress }: { icon: LucideIco
 const FLOATING_HEIGHT = 52
 // What the list keeps clear under its last row, so the button never covers it.
 const FLOATING_ROOM = FLOATING_HEIGHT + space.lg
+// How close to the bottom counts as reaching it: about a screen's worth of rows still to come.
+const END_REACHED = 600
 
 export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const theme = useTheme()

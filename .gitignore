@@ -1,8 +1,10 @@
 node_modules/
 out/
+packages/desktop/build/wsl/
 dist/
 *.log
 .DS_Store
 .env*
 .idea/
 work/
+*.tgz

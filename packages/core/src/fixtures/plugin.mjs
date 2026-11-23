@@ -17,7 +17,7 @@ lines.on('line', (line) => {
   }
   const { id, method, params } = message
   if (method === 'handshake') {
-    send({ type: 'result', id, result: { protocolVersion: behavior.badHandshake ? 999 : 1, id: manifest.id, version: manifest.version, sources: manifest.contributes.sources.map((source) => source.id) } })
+    send({ type: 'result', id, result: { protocolVersion: behavior.badHandshake ? 999 : 1, id: manifest.id, version: manifest.version, sources: (manifest.contributes.sources ?? []).map((source) => source.id), ...(behavior.legacyHandshake ? {} : { pages: behavior.badPages ? ['wrong'] : (manifest.contributes.pages ?? []).map((page) => page.id) }) } })
     return
   }
   if (behavior.stderr) process.stderr.write(behavior.stderr)
@@ -30,6 +30,12 @@ lines.on('line', (line) => {
     loginId = id
     send({ type: 'notify', notice: { message: 'Signing in' } })
     send({ type: 'prompt', id: 'first', prompt: { kind: 'secret', label: String(process.pid) } })
+    return
+  }
+  if (method === 'page') {
+    const reply = () => send(behavior.pageError ? { type: 'error', id, error: { code: 'request-failed', message: behavior.pageError } } : { type: 'result', id, result: { result: params.params } })
+    if (behavior.delay) setTimeout(reply, behavior.delay)
+    else reply()
     return
   }
   const result = method === 'envCredential' ? null

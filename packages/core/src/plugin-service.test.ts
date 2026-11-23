@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,6 +39,82 @@ describe('plugin installation and activation', () => {
     await pluginFixture(from, { version, behavior })
     return plugins.install({ kind: 'local', path: from })
   }
+
+  const installPage = async (behavior: Record<string, unknown> = {}) => {
+    const from = path.join(root, 'page-input')
+    await pluginFixture(from, { source: null, pages: [{ id: 'demo', label: 'Demo', entry: 'page/index.html' }], behavior })
+    await mkdir(path.join(from, 'page/assets'))
+    await writeFile(path.join(from, 'page/assets/main.js'), 'console.log("page")')
+    return plugins.install({ kind: 'local', path: from })
+  }
+
+  it('installs pages alone, serves their directory and answers calls, then refuses disabled pages', async () => {
+    const info = await installPage()
+    expect(info).toMatchObject({ sources: [], pages: [{ id: 'demo' }], problem: null })
+    expect(sources.list()).toEqual([])
+    const files = await plugins.pageFiles(info.id, 'demo')
+    expect(files.entry).toBe('index.html')
+    expect(files.files.map((file) => file.path).sort()).toEqual(['assets/main.js', 'index.html'])
+    expect(Buffer.from(files.files.find((file) => file.path === 'index.html')!.base64, 'base64').toString()).toBe('<html>Demo</html>')
+    await expect(plugins.pageCall(info.id, 'demo', 'echo', { ok: true })).resolves.toEqual({ result: { ok: true } })
+    await expect(plugins.pageCall(info.id, 'absent', 'echo', null)).rejects.toThrow('未声明')
+    await plugins.setEnabled(info.id, false)
+    await expect(plugins.pageFiles(info.id, 'demo')).rejects.toThrow('停用')
+    await expect(plugins.pageCall(info.id, 'demo', 'echo', null)).rejects.toThrow('停用')
+    await plugins.setEnabled(info.id, true)
+    await expect(plugins.pageCall(info.id, 'demo', 'echo', null)).resolves.toEqual({ result: null })
+  })
+
+  it('bounds concurrent calls without blocking on installs and preserves backend failures', async () => {
+    const info = await installPage({ delay: 300, pageError: 'Readable backend failure' })
+    const calls = Array.from({ length: 4 }, () => plugins.pageCall(info.id, 'demo', 'echo', null).catch((error: unknown) => error))
+    await expect(plugins.pageCall(info.id, 'demo', 'echo', null)).rejects.toThrow('4')
+    expect((await Promise.all(calls)).every((error) => error instanceof Error && error.message === 'Readable backend failure')).toBe(true)
+    await expect(plugins.pageCall(info.id, 'demo', 'echo', '界'.repeat(1_100_000))).rejects.toThrow('3 MiB')
+    const circular: { self?: unknown } = {}; circular.self = circular
+    await expect(plugins.pageCall(info.id, 'demo', 'echo', circular)).rejects.toThrow()
+    let release: (response: Response) => void = () => {}
+    const download = vi.fn(() => new Promise<Response>((resolve) => { release = resolve }))
+    vi.stubGlobal('fetch', download)
+    const install = plugins.install({ kind: 'github', repository: 'example/stalled' }).catch(() => {})
+    await vi.waitFor(() => expect(download).toHaveBeenCalled())
+    await expect(plugins.pageCall(info.id, 'demo', 'echo', null)).rejects.toThrow('Readable backend failure')
+    release(new Response('', { status: 404 }))
+    await install
+  })
+
+  it('bounds page files and rejects paths escaping the installed directory', async () => {
+    const info = await installPage()
+    const folder = path.join(root, 'plugins', info.id, info.version, 'page')
+    await writeFile(path.join(folder, 'large.png'), Buffer.alloc(8 * 1024 * 1024))
+    await expect(plugins.pageFiles(info.id, 'demo')).rejects.toThrow('8 MiB')
+    await rm(path.join(folder, 'large.png'))
+    for (let i = 0; i < 255; i++) await writeFile(path.join(folder, `${i}.js`), '')
+    await expect(plugins.pageFiles(info.id, 'demo')).rejects.toThrow('256')
+    for (let i = 0; i < 255; i++) await rm(path.join(folder, `${i}.js`))
+    await symlink(path.join(root, 'page-input'), path.join(folder, 'escape'))
+    await expect(plugins.pageFiles(info.id, 'demo')).rejects.toThrow()
+  })
+
+  it('skips malformed saved manifests and keeps missing files listed with a problem', async () => {
+    const info = await installPage()
+    await plugins.close()
+    const pointer = path.join(root, 'plugins/active.json')
+    const saved = JSON.parse(await readFile(pointer, 'utf8'))
+    saved.plugins.unshift({ manifest: { id: 'bad.plugin' } })
+    await writeFile(pointer, JSON.stringify(saved))
+    await rm(path.join(root, 'plugins', info.id, info.version, 'main.mjs'))
+    plugins = createService()
+    await expect(plugins.load()).resolves.toBeUndefined()
+    expect(plugins.list()).toHaveLength(1)
+    expect(plugins.list()[0]?.problem).toBeTruthy()
+    await expect(plugins.pageFiles(info.id, 'demo')).rejects.toThrow()
+    // A record this version cannot read is another version's, and stays in the file when it is rewritten.
+    await plugins.setEnabled(info.id, false)
+    const rewritten = JSON.parse(await readFile(pointer, 'utf8'))
+    expect(rewritten.plugins).toHaveLength(2)
+    expect(rewritten.plugins).toContainEqual({ manifest: { id: 'bad.plugin' } })
+  })
 
   it('loads an installed plugin after upgrading from a stable host to a beta, preserving settings', async () => {
     await install('1.0.0')

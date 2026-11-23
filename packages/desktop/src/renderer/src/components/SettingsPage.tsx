@@ -47,7 +47,7 @@ import {
   BoltIcon,
   RobotIcon,
   PulseIcon,
-  TerminalIcon, PhoneIcon, ArchiveIcon } from './icons'
+  TerminalIcon, PhoneIcon, ArchiveIcon, LaptopIcon } from './icons'
 import { ChatCommandSettings } from './ChatCommandSettings'
 import { KnowledgeBaseSettings } from './KnowledgeBaseSettings'
 import { SkillsSettingsSection } from './SkillsSettingsSection'
@@ -64,6 +64,8 @@ import { projectName } from './ProjectPicker'
 import { Segmented, SettingsGroup, SettingsRow, Stepper, Toggle } from './SettingsControls'
 import { MobileSettings, useMobileSupported } from './MobileSettings'
 import { StorageSettings, useAttachmentSweepSupported } from './StorageSettings'
+import { BackendLocationSettings } from './BackendLocationSettings'
+import { useBackendLocationShown } from '../backend-location-state'
 import { SupportSettings } from './SupportSettings'
 import { ProjectConfigDialog, projectConfigSummary } from './ProjectConfigDialog'
 import { useOccludesBrowser } from '../browser-occlusion'
@@ -834,6 +836,17 @@ const STORAGE_SECTION: Section = localized(() => ({
   Body: StorageSettings
 }))
 
+// On a Windows build that can run its backend in WSL: this machine or a distro; it follows 存储.
+const BACKEND_LOCATION_SECTION: Section = localized(() => ({
+  id: 'backend-location',
+  group: t('ChatFontPicker.other'),
+  title: t('BackendLocation.title'),
+  description: t('BackendLocation.description'),
+  keywords: ['wsl', 'wsl 2', 'linux', 'ubuntu', 'debian', 'node', 'nvm', 'distro', 'backend', '后端', '发行版', 'Windows', t('BackendLocation.local'), t('BackendLocation.choose'), t('BackendLocation.running')],
+  Icon: LaptopIcon,
+  Body: BackendLocationSettings
+}))
+
 const MOBILE_SECTION: Section = localized(() => ({
   id: 'mobile',
   group: t('SettingsPage.integrations'),
@@ -903,17 +916,19 @@ export function SettingsPage() {
   const wireLog = useWireLogSupported()
   const run = useRunSettingsShown()
   const permissions = usePermissionSettingsShown()
+  const backendLocation = useBackendLocationShown()
   const sections = useMemo(() => {
-    // 更新 then 支持; 调试 sits last, after every section a user visits by choice.
-    const information = ['about', 'support'].flatMap((id) => SECTIONS.filter((section) => section.id === id))
+    // 更新 leads the final utility pages; 调试 sits last, after every section a user visits by choice.
+    const update = SECTIONS.filter((section) => section.id === 'about')
+    const support = SECTIONS.filter((section) => section.id === 'support')
     const own = SECTIONS.filter((section) => section.id !== 'about' && section.id !== 'support' && (section.id !== 'notifications' || canNotify() || canShowRequestPopup()))
       .flatMap((section) => (section.id === 'agents' ? [
         section, ...(accounts ? [ACCOUNTS_SECTION] : []), ...(modelProviders ? [MODEL_PROVIDERS_SECTION] : []), ...(run ? [RUN_SECTION] : []), ...(permissions ? [PERMISSIONS_SECTION] : []),
         CONVERSATION_SECTION, ...(chatCommands ? [CHAT_COMMANDS_SECTION] : []), ...(sessionImport ? [SESSION_IMPORT_SECTION] : []),
         ...(skills ? [SKILLS_SECTION] : []), ...(mcp ? [MCP_SECTION] : [])
       ] : [section]))
-    return [...own, ...(plugins ? [PLUGINS_SECTION] : []), ...sourceSections(sources ?? []), ...(knowledge ? [KNOWLEDGE_SECTION] : []), ...(browser ? [BROWSER_SECTION] : []), ...(phones ? [MOBILE_SECTION] : []), ...(storage ? [STORAGE_SECTION] : []), ...information, ...(wireLog ? [DEBUG_SECTION] : [])]
-  }, [sources, browser, phones, storage, knowledge, skills, mcp, sessionImport, accounts, modelProviders, chatCommands, wireLog, plugins, run, permissions, locale])
+    return [...own, ...(plugins ? [PLUGINS_SECTION] : []), ...sourceSections(sources ?? []), ...(knowledge ? [KNOWLEDGE_SECTION] : []), ...(browser ? [BROWSER_SECTION] : []), ...(phones ? [MOBILE_SECTION] : []), ...update, ...(storage ? [STORAGE_SECTION] : []), ...(backendLocation ? [BACKEND_LOCATION_SECTION] : []), ...support, ...(wireLog ? [DEBUG_SECTION] : [])]
+  }, [sources, browser, phones, storage, knowledge, skills, mcp, sessionImport, accounts, modelProviders, chatCommands, wireLog, plugins, run, permissions, backendLocation, locale])
   const activeId = useCore((state) => state.settingsSection) ?? SECTIONS[0]?.id ?? ''
   const [query, setQuery] = useState('')
   useEffect(() => { setQuery('') }, [activeId])

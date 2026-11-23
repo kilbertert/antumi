@@ -381,7 +381,7 @@ ${comments}` }, [], Infinity)
 
 
 const plugins = new PluginService(path.join(paths.home, 'plugins'), packageJson.version, sources, sourceConfig, [],
-  (plugins) => server?.broadcast('plugins.changed', { plugins }))
+  (plugins) => server?.broadcast('plugins.changed', { plugins }), browser)
 await plugins.load()
 
 const usageSources: Partial<Record<AgentKind, UsageSource>> = {}
@@ -534,14 +534,15 @@ const cliMaintenance = new AgentCliMaintenance(paths.database, {
 terminals.onBeforeCloseUpgrade(() => cliMaintenance.reconcile())
 
 const accounts = new AgentAccountStore(paths.agentAccounts, paths.agentAccountHomes, {
-  signIn: (argv, env, title, agent) => terminals.signIn(argv, env, title, agent),
+  signIn: (argv, env, title, agent, cwd) => terminals.signIn(argv, env, title, agent, cwd),
   waitForExit: (id) => terminals.waitForExit(id),
   accountChanged: (agent, id, removed) => {
     if (removed) usage.forget(agent, id)
     else void usage.readAccount(agent, id)
     void environment.check(true).catch(() => {})
   },
-  changed: (list) => server?.broadcast('accounts.changed', { accounts: list })
+  changed: (list) => server?.broadcast('accounts.changed', { accounts: list }),
+  credentials
 })
 channels = new ChannelService(channelStore, {
   conversations,
@@ -555,7 +556,8 @@ channels = new ChannelService(channelStore, {
   identity: async (agent) => accounts.list().accounts.find((account) => account.agent === agent && account.id === accounts.activeOf(agent))?.email ?? null,
   daemon: async () => {
     const info = await daemon.request('info', {})
-    return { features: info.features ?? [], pid: info.pid }
+    const cleanPipe = info.features?.includes('clean-pipe') || await daemon.supports('spawnPipeClean')
+    return { cleanPipe, pid: info.pid }
   }
 })
 profiles.setChannelGuard((id) => channels?.hasChannels(id) ?? false)

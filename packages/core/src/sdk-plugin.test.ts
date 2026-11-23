@@ -61,3 +61,38 @@ runSourcePlugin({ manifest: ${JSON.stringify(manifest)}, sources: [{
     } finally { runtime.stop() }
   } finally { await rm(directory, { recursive: true, force: true }) }
 }, 20_000)
+
+it('calls an SDK page in a fresh backend process and preserves handler errors', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'antumi-sdk-page-host-'))
+  const manifest = PluginManifest.parse({
+    id: 'test.pages', version: '1.0.0', engines: { antumi: '>=0.21.8 <1.0.0' },
+    contributes: { pages: [{ id: 'dashboard', label: 'Dashboard', entry: 'page/index.html' }] },
+    entry: { runtime: 'node', main: 'main.mjs' }
+  })
+  try {
+    const artifact = await build({
+      stdin: {
+        contents: `import { runPlugin } from '@antumi/plugin-sdk'
+let calls = 0
+runPlugin({ manifest: ${JSON.stringify(manifest)}, pages: { dashboard: {
+  echo: (params) => ({ params, calls: ++calls }),
+  fail: () => { throw new Error('Readable page failure') }
+} } })`,
+        resolveDir: fileURLToPath(new URL('../../plugin-sdk/', import.meta.url)), loader: 'ts'
+      },
+      bundle: true, platform: 'node', format: 'esm', target: 'node22', write: false
+    })
+    const output = artifact.outputFiles[0]
+    if (!output) throw new Error('Missing plugin build')
+    const main = path.join(directory, 'main.mjs')
+    await writeFile(main, output.contents)
+    const runtime = new PluginProcess(manifest, main, {})
+    try {
+      expect(await runtime.providers()).toEqual([])
+      for (let i = 0; i < 2; i++) {
+        await expect(runtime.call('page', { page: 'dashboard', method: 'echo', params: { ok: true } })).resolves.toEqual({ result: { params: { ok: true }, calls: 1 } })
+      }
+      await expect(runtime.call('page', { page: 'dashboard', method: 'fail', params: null })).rejects.toThrow('Readable page failure')
+    } finally { runtime.stop() }
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})

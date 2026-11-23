@@ -227,3 +227,80 @@ describe('ACP without a dialect of its own', () => {
     expect(items(driver, 'turn').at(-1)).toMatchObject({ usage: { input: 10, output: 2 }, metering: { reportedCostUsd: null } })
   })
 })
+
+describe('ACP agents that run a little off the standard', () => {
+  const update = (driver: AcpDriver, body: object) => receive(driver, { method: 'session/update', params: { sessionId: 'session', update: body } })
+  const prompt = (driver: AcpDriver) => driver.apply({ dir: 'out', at: 3, frame: driver.send('go').logged })
+  const config = [
+    { type: 'select', id: 'mode', name: 'Mode', category: 'mode', currentValue: 'default', options: [{ value: 'default', name: 'Default' }, { value: 'plan', name: 'Plan' }] },
+    { type: 'boolean', id: 'multitask', name: 'Multitask', currentValue: false }
+  ]
+  function openedWith(dialect: AcpDialect): AcpDriver {
+    const driver = new AcpDriver(dialect, 'stage', OPTIONS)
+    due(driver)
+    receive(driver, { id: `${dialect.idPrefix}-init`, result: { protocolVersion: 1 } })
+    due(driver)
+    receive(driver, { id: `${dialect.idPrefix}-session`, result: { sessionId: 'session', configOptions: config } })
+    return driver
+  }
+
+  it('opens past a config option of a kind it cannot read, rather than calling the session invalid', () => {
+    const driver = openedWith(plain)
+    expect(driver.failure()).toBeNull()
+    expect(items(driver, 'state').at(-1)).toMatchObject({ permissionMode: 'ask', permissionModes: ['ask', 'plan'] })
+  })
+
+  it('says to sign in when opening a session needs one', () => {
+    const driver = new AcpDriver(plain, 'stage', OPTIONS)
+    due(driver)
+    receive(driver, { id: 'plain-init', result: { protocolVersion: 1 } })
+    due(driver)
+    receive(driver, { id: 'plain-session', error: { code: -32000, message: 'Authentication required' } })
+    expect(driver.failure()).toBe('Plain 未登录，请先在终端里登录后重试')
+  })
+
+  it('names an untitled approval after the call it announced, and shows a subagent’s brief once it streams in', () => {
+    const driver = openedWith(plain)
+    prompt(driver)
+    update(driver, { sessionUpdate: 'tool_call', toolCallId: 'run', title: 'pnpm test', kind: 'execute', rawInput: { command: 'pnpm test' } })
+    receive(driver, { id: 5, method: 'session/request_permission', params: { sessionId: 'session', toolCall: { toolCallId: 'run' }, options: [{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }] } })
+    expect(items(driver, 'approval')[0]).toMatchObject({ title: 'pnpm test' })
+    const tasks = openedWith({ ...plain, toolName: (_input, _name, title) => (title === 'Agent' ? 'Task' : null) })
+    prompt(tasks)
+    update(tasks, { sessionUpdate: 'tool_call', toolCallId: 'task', title: 'Agent', rawInput: {} })
+    update(tasks, { sessionUpdate: 'tool_call_update', toolCallId: 'task', rawInput: { description: 'Check CI', prompt: 'look' } })
+    expect(items(tasks, 'tool')[0]).toMatchObject({ name: 'Task', input: expect.stringContaining('look') })
+  })
+
+  it('reviews a plan from the file its call wrote, its diff announced before the call completed bare, and switches mode with the approval', () => {
+    const dialect: AcpDialect = { ...plain, planApprovalSetsMode: true, permissionPrompt: () => ({ kind: 'plan', path: '/plans/p.md', runMode: 'ask' }) }
+    const driver = openedWith(dialect)
+    prompt(driver)
+    update(driver, { sessionUpdate: 'tool_call', toolCallId: 'write', title: 'Write', kind: 'edit', status: 'pending', content: [{ type: 'diff', path: '/plans/p.md', oldText: null, newText: '# Plan' }] })
+    update(driver, { sessionUpdate: 'tool_call_update', toolCallId: 'write', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'Wrote it' } }] })
+    receive(driver, { id: 6, method: 'session/request_permission', params: { sessionId: 'session', toolCall: { toolCallId: 'exit' }, options: [{ optionId: 'ok', name: 'Allow', kind: 'allow_once' }, { optionId: 'no', name: 'Reject', kind: 'reject_once' }] } })
+    const plan = items(driver, 'approval')[0]!
+    expect(plan).toMatchObject({ detail: '# Plan', runModes: ['ask'] })
+    expect(driver.respond(plan.requestId, { decision: 'allow' })).toEqual([
+      { jsonrpc: '2.0', id: 6, result: { outcome: { outcome: 'selected', optionId: 'ok' } } },
+      { jsonrpc: '2.0', id: 'plain-plan-run-number%3A6', method: 'session/set_config_option', params: { sessionId: 'session', configId: 'mode', value: 'default' } }
+    ])
+  })
+
+  it('keeps the steps of a subagent run inside the session on its Task card, each call counted once', () => {
+    const dialect: AcpDialect = { ...plain, toolName: (_input, _name, title) => (title === 'Agent' ? 'Task' : null), subagentOf: (body) => z.looseObject({ parent: z.string() }).safeParse(body).data?.parent ?? null }
+    const driver = openedWith(dialect)
+    prompt(driver)
+    update(driver, { sessionUpdate: 'tool_call', toolCallId: 'task', title: 'Agent', rawInput: { description: 'Check CI' } })
+    for (const status of ['in_progress', 'pending']) update(driver, { sessionUpdate: 'tool_call', toolCallId: 'child', title: 'Bash', kind: 'execute', status, parent: 'task' })
+    update(driver, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'CI is green' }, parent: 'task' })
+    expect(items(driver, 'tool')).toMatchObject([{ id: 'tool:task', metrics: { tools: 1 } }])
+    expect(items(driver, 'assistant')).toEqual([])
+  })
+
+  it('refuses, before it goes, a prompt longer than the line its transport reads', () => {
+    const driver = openedWith({ ...plain, maxLineBytes: 1024 })
+    expect(() => driver.send('x'.repeat(2048))).toThrow(expect.objectContaining({ reason: 'chat-prompt-too-large' }))
+    expect(driver.send('short').wire).toMatchObject({ method: 'session/prompt' })
+  })
+})

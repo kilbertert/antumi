@@ -8,7 +8,7 @@ export type AgentModeText = { label: string; description: string }
 // the agent's rules here rather than re-encoding them, and a new agent is one more descriptor.
 export type AgentDescriptor = {
   label: string
-  translations?: { en: Partial<Pick<AgentDescriptor, 'modes' | 'environment' | 'usageWhere' | 'nativePlanRun'>> }
+  translations?: { en: Partial<Pick<AgentDescriptor, 'modes' | 'environment' | 'usageWhere' | 'nativePlanRun' | 'accountKeys'>> }
   // The command the user runs themselves, to sign in or refresh its credentials.
   cli: string
   // Where native credentials come from; separate from Antumi-managed model providers.
@@ -57,6 +57,10 @@ export type AgentDescriptor = {
     // they reach the model in the message rather than through a file it reads. Unset, it cannot.
     lockdown?: { images: boolean }
   }
+  // Accounts it signs in to with an API key instead of in a terminal, each for one edition of its
+  // service (capabilities.accounts). only: the accounts added to the user's own are all of this
+  // kind, as its sign-in is one for the whole machine.
+  accountKeys?: { editions: readonly { id: string; label: string }[]; only: boolean; hint: string }
   // Its file tools reach only the primary project: it gets at the others, a task's reference
   // projects among them, through commands alone. Clients say so where it is given several.
   primaryOnlyFiles?: boolean

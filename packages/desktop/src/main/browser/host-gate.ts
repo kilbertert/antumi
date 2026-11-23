@@ -1,17 +1,22 @@
 import { randomUUID } from 'node:crypto'
-import type { BrowserContext, Request } from 'playwright-core'
+import type { CallbackResponse, WebRequestFilter } from 'electron'
 import { BROWSER_HOST_DECISION_WAIT_MS, isLocalHost, type BrowserNavigationOutcome } from '@antumi/protocol'
-import type { TabRegistry } from './tabs'
+import type { Tab } from './tabs'
 
 export type HostCheck = { checkId: string; tabId: string; conversationId: string | null; host: string; url: string }
 
+type GatedRequest = { url: string; resourceType: string; webContentsId?: number }
+export type GatedSession = {
+  webRequest: { onBeforeRequest(filter: WebRequestFilter, listener: (details: GatedRequest, callback: (response: CallbackResponse) => void) => void): void }
+}
+
 // Whether a request is a page-level navigation the gate has a say in: a top frame going to a
 // web host outside local development. Everything a page loads for itself passes.
-export function gatedHost(request: Pick<Request, 'url' | 'isNavigationRequest'> & { frame(): { parentFrame(): unknown } }): string | null {
-  if (!request.isNavigationRequest() || request.frame().parentFrame() !== null) return null
+export function gatedHost(request: Pick<GatedRequest, 'url' | 'resourceType'>): string | null {
+  if (request.resourceType !== 'mainFrame') return null
   let url: URL
   try {
-    url = new URL(request.url())
+    url = new URL(request.url)
   } catch {
     return null
   }
@@ -22,31 +27,39 @@ export function gatedHost(request: Pick<Request, 'url' | 'isNavigationRequest'> 
 // Holds every top-level navigation to a site outside local development until core says whether
 // the user allows it. One place for all of them: the agent's goto, a link the user clicks in the
 // live view, a redirect. Core keeps the policy; the gate only asks.
+// It holds them in the network stack rather than through the tab's debugger: a page whose requests
+// pass through DevTools interception is one Cloudflare's challenge never clears, however often
+// the user ticks its box.
 export class HostGate {
   private readonly pending = new Map<string, { resolve: (allow: boolean) => void; timer: NodeJS.Timeout }>()
   // Why the tab's last navigation was stopped, for the navigate call to report.
   private readonly blocked = new Map<string, BrowserNavigationOutcome>()
+  private readonly sessions = new WeakSet<GatedSession>()
 
   constructor(
-    private readonly tabs: TabRegistry,
+    private readonly tabOf: (webContentsId: number) => Pick<Tab, 'id' | 'conversationId'> | null,
     private readonly ask: (check: HostCheck) => void
   ) {}
 
-  async install(context: BrowserContext): Promise<void> {
-    await context.route('**/*', async (route, request) => {
+  // Once per session: a session takes a single listener, and every tab in it shares this one.
+  install(session: GatedSession): void {
+    if (this.sessions.has(session)) return
+    this.sessions.add(session)
+    session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'], types: ['mainFrame'] }, (request, callback) => {
       const host = gatedHost(request)
-      const tab = host ? this.tabs.byPage(request.frame().page()) : null
+      const tab = host && request.webContentsId !== undefined ? this.tabOf(request.webContentsId) : null
       if (!host || !tab) {
-        await route.fallback()
+        callback({})
         return
       }
-      const outcome = await this.check({ checkId: randomUUID(), tabId: tab.id, conversationId: tab.conversationId, host, url: request.url() })
-      if (outcome === 'done') {
-        await route.fallback()
-      } else {
-        this.blocked.set(tab.id, outcome)
-        await route.abort('blockedbyclient')
-      }
+      void this.check({ checkId: randomUUID(), tabId: tab.id, conversationId: tab.conversationId, host, url: request.url }).then((outcome) => {
+        if (outcome === 'done') {
+          callback({})
+        } else {
+          this.blocked.set(tab.id, outcome)
+          callback({ cancel: true })
+        }
+      })
     })
   }
 

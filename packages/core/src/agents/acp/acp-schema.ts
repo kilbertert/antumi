@@ -5,6 +5,11 @@ export const AcpOptionValue = z.looseObject({ value: z.string(), name: z.string(
 export type AcpOptionValue = z.infer<typeof AcpOptionValue>
 export const AcpConfig = z.looseObject({ id: z.string(), category: z.string().optional(), name: z.string(), currentValue: z.string(), options: z.array(z.union([AcpOptionValue, z.looseObject({ group: z.string(), options: z.array(AcpOptionValue) })])).catch([]) })
 export type AcpConfig = z.infer<typeof AcpConfig>
+// The options Antumi can read: a kind it does not know (a boolean switch) is left out, not the list.
+export const AcpConfigs = z.array(z.unknown()).transform((options) => options.flatMap((option) => {
+  const config = AcpConfig.safeParse(option)
+  return config.success ? [config.data] : []
+}))
 
 export const valuesOf = (config: AcpConfig): AcpOptionValue[] => config.options.flatMap((option) => {
   const single = AcpOptionValue.safeParse(option)

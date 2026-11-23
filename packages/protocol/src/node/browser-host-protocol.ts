@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { browserActions, BrowserCaptureOptions, BrowserConsole, BrowserNavigateTo, BrowserNavigationOutcome, BrowserPageContext, BrowserScreenshotOptions, BrowserStatus, BrowserTab, BrowserTabId, BrowserUrl, BrowserViewport } from '../browser'
 import { BrowserDownload, BrowserDownloadAction, MAX_BROWSER_UPLOAD_BYTES, SnapshotRef } from '../browser'
+import { PluginBrowserRequest, PluginBrowserResult, PluginBrowserSite } from '../plugin-browser'
 
 // JSON-RPC-shaped lines over a loopback WebSocket between core and the browser host, which the
 // desktop app runs in its main process. The app writes where to connect to the host file
@@ -30,6 +31,7 @@ const ActionResult = z.object({ tab: HostTab, snapshot: z.string() })
 const NavigationResult = z.object({ tab: HostTab, outcome: BrowserNavigationOutcome, snapshot: z.string().nullable() })
 
 export const browserHostMethods = {
+  'plugin.session': { params: z.object({ key: z.string().regex(/^[a-f0-9]{64}$/), site: PluginBrowserSite, request: PluginBrowserRequest }), result: PluginBrowserResult },
   status: { params: z.object({}), result: BrowserStatus },
   'tabs.list': { params: z.object({}), result: z.object({ tabs: z.array(HostTab) }) },
   // Without a conversation, the tab is the user's own. A viewport holds the tab at that size.

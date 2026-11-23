@@ -1,14 +1,17 @@
-import { Image, Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { GestureDetector, GestureHandlerRootView, usePanGesture, usePinchGesture, useExclusiveGestures, useSimultaneousGestures, useTapGesture } from 'react-native-gesture-handler'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
-import { X } from 'lucide-react-native'
+import { Check, Download, X } from 'lucide-react-native'
 import { t } from '../i18n'
-import { radius, space } from '../theme'
+import { saveToPhotos } from '../photo-saving'
+import { radius, space, type } from '../theme'
 
 // A picture from the chat at full size: pinched to zoom, dragged about once zoomed, a double tap
 // between fitted and zoomed in. A tap, the back button or a drag down from fitted closes it.
+// The button beside close saves it to the phone's photos.
 
 const MAX_SCALE = 5
 const DOUBLE_TAP_SCALE = 2.5
@@ -28,6 +31,16 @@ export function ImageViewer({ uri, width, height, onClose }: { uri: string; widt
   const savedX = useSharedValue(0)
   const savedY = useSharedValue(0)
   const drop = useSharedValue(0)
+  const [saving, setSaving] = useState<'idle' | 'busy' | 'saved' | 'failed'>('idle')
+  useEffect(() => {
+    if (saving !== 'failed') return
+    const timer = setTimeout(() => setSaving('idle'), 3_000)
+    return () => clearTimeout(timer)
+  }, [saving])
+  const save = () => {
+    setSaving('busy')
+    void saveToPhotos(uri).then((saved) => setSaving(saved ? 'saved' : 'failed'))
+  }
 
   // How far the zoomed picture may move before its edge comes in from the screen's.
   const bounded = (value: number, size: number, room: number, zoom: number) => {
@@ -122,9 +135,19 @@ export function ImageViewer({ uri, width, height, onClose }: { uri: string; widt
             </Animated.View>
           </View>
         </GestureDetector>
-        <Pressable accessibilityLabel={t('close')} onPress={onClose} hitSlop={12} style={[styles.close, { top: insets.top + space.sm }]}>
-          <X size={22} color="#ffffff" />
-        </Pressable>
+        <View style={[styles.actions, { top: insets.top + space.sm }]}>
+          <Pressable accessibilityLabel={t('saveToPhotos')} disabled={saving === 'busy' || saving === 'saved'} onPress={save} hitSlop={12} style={styles.button}>
+            {saving === 'busy' ? <ActivityIndicator color="#ffffff" /> : saving === 'saved' ? <Check size={22} color="#ffffff" /> : <Download size={22} color="#ffffff" />}
+          </Pressable>
+          <Pressable accessibilityLabel={t('close')} onPress={onClose} hitSlop={12} style={styles.button}>
+            <X size={22} color="#ffffff" />
+          </Pressable>
+        </View>
+        {saving === 'saved' || saving === 'failed' ? (
+          <View pointerEvents="none" style={[styles.status, { bottom: insets.bottom + space.xl }]} accessibilityLiveRegion="polite">
+            <Text style={[type.secondary, styles.statusText]}>{t(saving === 'saved' ? 'savedToPhotos' : 'saveToPhotosFailed')}</Text>
+          </View>
+        ) : null}
       </GestureHandlerRootView>
     </Modal>
   )
@@ -135,5 +158,8 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center' },
   // A picture is looked at against black, whatever the app's theme.
   backdrop: { backgroundColor: '#000000' },
-  close: { position: 'absolute', right: space.md, width: 40, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)' }
+  actions: { position: 'absolute', right: space.md, flexDirection: 'row', gap: space.sm },
+  button: { width: 40, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)' },
+  status: { position: 'absolute', alignSelf: 'center', paddingVertical: space.sm, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.16)' },
+  statusText: { color: '#ffffff' }
 })

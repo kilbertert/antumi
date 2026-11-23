@@ -23,6 +23,7 @@ export function fakeChatDaemon() {
   const released: string[] = []
 
   const fake = {
+    assertConnected() {},
     sessions,
     writes,
     spawns,

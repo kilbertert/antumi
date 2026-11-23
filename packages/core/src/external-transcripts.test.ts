@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,6 +16,7 @@ import { cursorCliTranscripts } from './agents/cursor/cursor-cli-transcripts'
 import { cursorDesktopTranscripts, cursorDesktopUserDir } from './agents/cursor/cursor-desktop-transcripts'
 import { cursorTranscripts } from './agents/cursor/cursor-transcripts'
 import { antigravityTranscripts } from './agents/antigravity/antigravity-transcripts'
+import { codebuddyTranscripts } from './agents/codebuddy/codebuddy-transcripts'
 import type { TranscriptSource } from './agent-transcripts'
 
 let root: string
@@ -73,6 +75,49 @@ describe('external transcript sources', () => {
     expect(summary).toMatchObject({ sessionId: id, cwd, title: 'Kimi fix' })
     expect(transcript.messages.map((message) => message.text)).toEqual(['Fix Kimi', 'Fixed'])
     expect(transcript.entries.find((entry) => entry.item.kind === 'tool')?.item).toMatchObject({ output: 'source', status: 'done' })
+  })
+
+  it('reads CodeBuddy’s Agents SDK items: its titles, typed prompts, images from its blob store and the tools they ran', async () => {
+    const home = path.join(root, 'codebuddy')
+    const image = pngBytes(4, 3)
+    const blob = createHash('sha256').update(image).digest('hex')
+    save(path.join(home, 'blobs', blob.slice(0, 2), `${blob}.png`), image)
+    const at = (n: number) => ({ timestamp: 1_000 + n, sessionId: id, cwd })
+    jsonl(path.join(home, 'projects', 'project', `${id}.jsonl`), [
+      { type: 'session-meta', ...at(0), meta: {} },
+      { type: 'message', role: 'user', id: 'u1', ...at(1), content: [{ type: 'input_text', text: 'Fix the build' }, { type: 'image_blob_ref', blob_id: blob, mime: 'image/png', size: image.length }, { type: 'input_text', text: '<image_local_path>/tmp/clip.png</image_local_path>' }, { type: 'image_blob_ref', blob_id: 'f'.repeat(64), mime: 'image/png' }] },
+      { type: 'reasoning', id: 'r1', ...at(2), rawContent: [{ type: 'reasoning_text', text: 'Look at the log' }] },
+      { type: 'function_call', id: 'c1', ...at(3), callId: 'bash', name: 'Bash', arguments: JSON.stringify({ command: 'npm run build', description: 'Build it' }) },
+      { type: 'function_call_result', id: 'c2', ...at(4), callId: 'bash', name: 'Bash', status: 'completed', output: { type: 'text', text: 'Error: exit 1' } },
+      { type: 'function_call', id: 'c3', ...at(5), callId: 'mcp', name: 'DeferExecuteTool', arguments: JSON.stringify({ toolName: 'mcp__docs__search', params: { query: 'build' } }) },
+      { type: 'function_call_result', id: 'c4', ...at(6), callId: 'mcp', status: 'completed', output: { type: 'text', text: 'found' } },
+      { type: 'function_call', id: 'c5', ...at(7), callId: 'agent', name: 'Agent', arguments: JSON.stringify({ description: 'Check CI', prompt: 'look', subagent_type: 'general-purpose' }) },
+      { type: 'function_call_result', id: 'c6', ...at(8), callId: 'agent', status: 'completed', output: { type: 'text', text: 'CI is green' } },
+      { type: 'function_call', id: 'c7', ...at(9), callId: 'stopped', name: 'Read', arguments: JSON.stringify({ file_path: '/src/a.ts' }) },
+      { type: 'message', role: 'assistant', id: 'a1', ...at(10), content: [{ type: 'output_text', text: 'Fixed' }] },
+      { type: 'message', role: 'user', id: 'meta', ...at(11), providerData: { isMeta: true }, content: [{ type: 'input_text', text: '<task-notification>done</task-notification>' }] },
+      { type: 'message', role: 'user', id: 'u2', ...at(12), content: [{ type: 'input_text', text: '<command-message>review</command-message> <command-name>/review</command-name> <command-args>src</command-args>\nReview the code in src' }] },
+      { type: 'ai-title', ...at(13), aiTitle: 'Build fix' },
+      { type: 'custom-title', ...at(14), customTitle: 'Release blocker' },
+      { type: 'ai-title', ...at(15), aiTitle: '(No content)' }
+    ])
+    // A subagent's own steps are another file, never a session of their own.
+    jsonl(path.join(home, 'projects', 'project', id, 'subagents', 'agent-1.jsonl'), [{ type: 'message', role: 'user', ...at(1), content: [{ type: 'input_text', text: 'look' }] }])
+    const { summary, transcript } = await only(codebuddyTranscripts(() => home))
+    expect(summary).toMatchObject({ sessionId: id, cwd, title: 'Release blocker', named: true, startedAt: 1_001 })
+    expect(transcript.messages.map((message) => message.text)).toEqual(['Fix the build', 'Fixed', '/review src'])
+    const items = transcript.entries.map((entry) => entry.item)
+    expect(items.find((item) => item.kind === 'reasoning')).toMatchObject({ text: 'Look at the log' })
+    expect(items.filter((item) => item.kind === 'tool')).toMatchObject([
+      { name: 'Bash', title: 'npm run build', description: 'Build it', status: 'failed', output: 'Error: exit 1' },
+      { name: 'docs.search', status: 'done', output: 'found' },
+      { name: 'Task', title: 'Check CI', status: 'done', output: 'CI is green' },
+      { name: 'Read', title: '/src/a.ts', status: 'interrupted' }
+    ])
+    const prompt = items.find((item) => item.kind === 'user')
+    expect(prompt?.kind === 'user' && prompt.images).toHaveLength(1)
+    if (prompt?.kind === 'user') expect(await attachments.info(prompt.images[0]!.id)).toMatchObject({ width: 4, height: 3 })
+    expect(items.filter((item) => item.kind === 'notice')).toHaveLength(1)
   })
 
   it('replays Gemini replacement snapshots and rewinds without resurrecting old messages', async () => {
@@ -258,7 +303,7 @@ describe('external transcript sources', () => {
 
   it('returns no histories for absent stores on all supported sources', async () => {
     const absent = () => path.join(root, 'absent')
-    for (const source of [piTranscripts(absent), kimiTranscripts(absent), geminiTranscripts(absent), dshTranscripts(absent), opencodeTranscripts(absent), cursorCliTranscripts(absent), cursorDesktopTranscripts(absent), antigravityTranscripts(absent)]) expect(await source.scan()).toEqual([])
+    for (const source of [piTranscripts(absent), kimiTranscripts(absent), geminiTranscripts(absent), dshTranscripts(absent), opencodeTranscripts(absent), cursorCliTranscripts(absent), cursorDesktopTranscripts(absent), antigravityTranscripts(absent), codebuddyTranscripts(absent)]) expect(await source.scan()).toEqual([])
     expect(cursorDesktopUserDir('win32', 'C:\\Users\\test', { APPDATA: 'C:\\Roaming' })).toContain('Cursor')
   })
 

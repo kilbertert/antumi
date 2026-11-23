@@ -35,6 +35,19 @@ describe('the agents\' own MCP servers', () => {
     ])
     expect(await findAgentMcpServers({ env: {}, homedir: home, codex: async () => '[]' })).toEqual([])
   })
+  it('reads only the first of CodeBuddy’s user-wide files that exists, under its relocated config folder', async () => {
+    const config = path.join(home, 'custom-codebuddy')
+    mkdirSync(config)
+    writeFileSync(path.join(home, '.codebuddy.json'), JSON.stringify({ mcpServers: { legacy: { command: 'legacy' } } }))
+    expect(await findAgentMcpServers({ env: { CODEBUDDY_CONFIG_DIR: config }, homedir: home, codex: async () => '[]' })).toMatchObject([{ source: 'codebuddy', name: 'legacy' }])
+    writeFileSync(path.join(config, '.mcp.json'), JSON.stringify({ mcpServers: {
+      docs: { type: 'http', url: 'https://example.com/mcp' },
+      off: { command: 'off', disabled: true }
+    } }))
+    expect(await findAgentMcpServers({ env: { CODEBUDDY_CONFIG_DIR: config }, homedir: home, codex: async () => '[]' })).toEqual([
+      { source: 'codebuddy', name: 'docs', transport: { type: 'http', url: 'https://example.com/mcp', headers: {} }, problem: null }
+    ])
+  })
   it('reads Kimi Code’s mcp.json from its configured home without importing disabled servers', async () => {
     const kimiHome = path.join(home, 'custom-kimi')
     mkdirSync(kimiHome)

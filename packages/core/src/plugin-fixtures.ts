@@ -2,13 +2,17 @@ import { copyFile, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { PluginManifest } from '@antumi/protocol'
 
-export async function pluginFixture(directory: string, options: { id?: string; version?: string; source?: string; behavior?: Record<string, unknown>; env?: string[] } = {}) {
+export async function pluginFixture(directory: string, options: { id?: string; version?: string; source?: string | null; pages?: { id: string; label: string; entry: string }[]; behavior?: Record<string, unknown>; env?: string[] } = {}) {
   await mkdir(directory, { recursive: true })
   const manifest = PluginManifest.parse({
     id: options.id ?? 'demo.source', version: options.version ?? '1.0.0', engines: { antumi: '>=0.15.0 <1.0.0' },
-    contributes: { sources: [{ id: options.source ?? 'demo', name: 'Demo', settings: [{ key: 'query', type: 'text', label: 'Query', required: false }] }] },
+    contributes: { sources: options.source === null ? [] : [{ id: options.source ?? 'demo', name: 'Demo', settings: [{ key: 'query', type: 'text', label: 'Query', required: false }] }], pages: options.pages ?? [] },
     entry: { runtime: 'node', main: 'main.mjs' }, env: options.env ?? []
   })
+  for (const page of manifest.contributes.pages) {
+    await mkdir(path.dirname(path.join(directory, page.entry)), { recursive: true })
+    await writeFile(path.join(directory, page.entry), '<html>Demo</html>')
+  }
   await writeFile(path.join(directory, 'manifest.json'), JSON.stringify(manifest))
   await writeFile(path.join(directory, 'behavior.json'), JSON.stringify(options.behavior ?? {}))
   await copyFile(new URL('./fixtures/plugin.mjs', import.meta.url), path.join(directory, 'main.mjs'))

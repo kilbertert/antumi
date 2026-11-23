@@ -57,7 +57,7 @@ export const FilesSnapshot = z.object({
 export type FilesSnapshot = z.infer<typeof FilesSnapshot>
 
 export const PanelContext = z.object({
-  section: z.enum(['tasks', 'conversations', 'discussions', 'squads']),
+  section: z.enum(['tasks', 'conversations', 'discussions', 'squads', 'plugin']),
   selectedConversationId: z.string().nullable(),
   selectedId: z.string().nullable(),
   selectedDiscussionId: z.string().nullable(),

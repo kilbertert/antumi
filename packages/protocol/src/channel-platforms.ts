@@ -68,6 +68,19 @@ export const CHANNEL_PLATFORM_DESCRIPTORS = {
     minGapMs: 250,
     features: { reactions: true }
   },
+  // Feishu outside China: the same platform, apps and limits, on its own domain.
+  lark: {
+    label: 'Lark',
+    credentials: [
+      { key: 'appId', label: 'App ID', prefix: 'cli_' },
+      { key: 'appSecret', label: 'App Secret' }
+    ],
+    console: 'https://open.larksuite.com/app',
+    manifest: FEISHU_SCOPES,
+    textLimit: 4000,
+    minGapMs: 250,
+    features: { reactions: true }
+  },
   dingtalk: {
     label: '钉钉',
     // Its Client ID and Client Secret, stored under the same names as Feishu's App ID and Secret.

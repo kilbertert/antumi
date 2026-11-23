@@ -13,7 +13,9 @@ export const DEFAULT_ACCOUNT = 'default'
 export const AgentAccountId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
 export type AgentAccountId = z.infer<typeof AgentAccountId>
 
-// label: the user's name for it; email and plan: what its sign-in says, where it says.
+// label: the user's name for it; email and plan: what its sign-in says, where it says. edition:
+// for an account signed in with an API key rather than in a terminal (its descriptor's
+// accountKeys), the edition of the service the key is for. Older cores leave it out.
 export const AgentAccount = z.object({
   id: AgentAccountId,
   agent: AgentKind,
@@ -21,9 +23,15 @@ export const AgentAccount = z.object({
   email: z.string().nullable(),
   plan: z.string().nullable(),
   signedIn: z.boolean(),
-  createdAt: z.number()
+  createdAt: z.number(),
+  edition: z.string().max(40).nullable().optional()
 })
 export type AgentAccount = z.infer<typeof AgentAccount>
+
+// What an account that signs in with an API key is given: the key, never sent back, and the
+// edition of the service it is for, one its descriptor's accountKeys names.
+export const AccountKey = z.object({ apiKey: z.string().trim().min(1).max(4000), edition: z.string().min(1).max(40) })
+export type AccountKey = z.infer<typeof AccountKey>
 
 // active: the account each agent's next process starts on, the default where none is named.
 // autoSwitch: a turn that runs into a usage limit moves its agent to the next account with quota.

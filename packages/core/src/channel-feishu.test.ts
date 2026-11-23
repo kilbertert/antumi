@@ -1,9 +1,9 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { ChannelConnector } from './channel-connector'
-import { feishuConnector, feishuContent } from './channel-feishu'
+import { feishuConnector, feishuContent, larkConnector } from './channel-feishu'
 import { FRAME_CONTROL, FRAME_DATA, decodeFrame, encodeFrame, frameHeader, type FeishuFrame } from './channel-feishu-frame'
 import type { ChannelDelivery, ChannelGatewayToCore } from './channel-gateway-ipc'
 import { until } from './fake-connection'
@@ -237,6 +237,23 @@ describe('the Feishu connector', () => {
     const tries = feishu.calls.length
     await new Promise((resolve) => setTimeout(resolve, 150))
     expect(feishu.calls).toHaveLength(tries)
+  })
+})
+
+describe('the Lark connector', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('takes its token from Lark\'s open platform and no other', async () => {
+    const urls: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      urls.push(String(input))
+      return new Response(JSON.stringify({ code: 10003, msg: 'invalid param' }), { headers: { 'content-type': 'application/json' } })
+    })
+    const states: ChannelGatewayToCore[] = []
+    const connector = larkConnector({ id: CHANNEL, platform: 'lark', credentials: { appId: 'cli_1', appSecret: 'bad' } }, (message) => states.push(message))
+    await until(() => states.some((message) => message.type === 'state' && message.state === 'failed') || undefined)
+    connector.stop()
+    expect(urls).toEqual(['https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal'])
   })
 })
 

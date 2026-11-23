@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Animated, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { createContext, useContext, useEffect, useRef, useState, type ComponentRef, type ReactNode, type Ref } from 'react'
+import { ActivityIndicator, Animated, Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import {
   Brain, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, FilePen, FileText, Globe, Hand, Info, ListChecks, RotateCcw, Search, ShieldQuestion, Terminal, Users, Wrench,
   type LucideIcon
@@ -316,6 +316,19 @@ function decisionText(decision: ChatDecision): string {
 }
 
 // The open approval, docked above the composer: what is asked, then its answers.
+// What a request says, scrolling once it is taller than half the screen, so the answer below it
+// stays in reach however long the questions or the plan run.
+type DockScroll = ComponentRef<typeof ScrollView>
+
+function DockBody({ children, ref }: { children: ReactNode; ref?: Ref<DockScroll> }) {
+  const { height } = useWindowDimensions()
+  return (
+    <ScrollView ref={ref} style={[styles.dockBody, { maxHeight: height * 0.5 }]} contentContainerStyle={styles.dockBodyContent} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+      {children}
+    </ScrollView>
+  )
+}
+
 export function ApprovalDock({ item, conversation }: { item: Approval; conversation: Conversation }) {
   const theme = useTheme()
   const relative = useRelative()
@@ -342,29 +355,31 @@ export function ApprovalDock({ item, conversation }: { item: Approval; conversat
   }
   return (
     <View style={[styles.dock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <View style={styles.dockHead}>
-        <View style={[styles.dockIcon, { backgroundColor: theme.waitingSoft }]}><ShieldQuestion size={16} color={theme.waiting} /></View>
-        <Text style={[type.caption, styles.dockLabel, { color: theme.waiting }]}>{t('needsApproval')}</Text>
-      </View>
-      <Text style={[type.rowTitle, { color: theme.text }]} numberOfLines={3}>{title}</Text>
-      {plan && item.detail ? (
-        // A plan is the agent's Markdown, read in full before it runs.
-        <ScrollView style={[styles.plan, { backgroundColor: theme.codeBg }]} contentContainerStyle={styles.planContent} nestedScrollEnabled>
-          <Markdown text={item.detail} />
-        </ScrollView>
-      ) : code ? <Text style={[styles.outputText, styles.detail, { color: command ? theme.text : theme.textMuted, backgroundColor: theme.codeBg }]} numberOfLines={8}>{code}</Text> : null}
-      {item.reason ? <Text style={[type.caption, { color: theme.textMuted }]}>{item.reason}</Text> : null}
+      <DockBody>
+        <View style={styles.dockHead}>
+          <View style={[styles.dockIcon, { backgroundColor: theme.waitingSoft }]}><ShieldQuestion size={16} color={theme.waiting} /></View>
+          <Text style={[type.caption, styles.dockLabel, { color: theme.waiting }]}>{t('needsApproval')}</Text>
+        </View>
+        <Text style={[type.rowTitle, { color: theme.text }]} numberOfLines={3}>{title}</Text>
+        {plan && item.detail ? (
+          // A plan is the agent's Markdown, read in full before it runs.
+          <View style={[styles.plan, { backgroundColor: theme.codeBg }]}>
+            <Markdown text={item.detail} />
+          </View>
+        ) : code ? <Text style={[styles.outputText, styles.detail, { color: command ? theme.text : theme.textMuted, backgroundColor: theme.codeBg }]} numberOfLines={8}>{code}</Text> : null}
+        {item.reason ? <Text style={[type.caption, { color: theme.textMuted }]}>{item.reason}</Text> : null}
+        {canOperate() && plan && modes.length > 0 ? (
+          <View style={styles.chips}>
+            {modes.map((each) => (
+              <Pressable key={each} onPress={() => setMode(each)} style={[styles.chip, { backgroundColor: each === mode ? theme.accentSoft : theme.raised }]}>
+                <Text style={[type.caption, { color: each === mode ? theme.accent : theme.text, fontWeight: '600' }]}>{modeName(conversation.agent, each)}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </DockBody>
       {canOperate() ? (
         <>
-          {plan && modes.length > 0 ? (
-            <View style={styles.chips}>
-              {modes.map((each) => (
-                <Pressable key={each} onPress={() => setMode(each)} style={[styles.chip, { backgroundColor: each === mode ? theme.accentSoft : theme.raised }]}>
-                  <Text style={[type.caption, { color: each === mode ? theme.accent : theme.text, fontWeight: '600' }]}>{modeName(conversation.agent, each)}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
           {allows[0] ? <Button label={allows[0].label} kind="primary" wide busy={busy === allows[0].key} onPress={() => void answer(allows[0]!.key, allows[0]!.decision, allows[0]!.choice)} /> : null}
           <View style={styles.dockActions}>
             {[...allows.slice(1), ...denies].map((option) => <Button key={option.key} label={option.label} kind="secondary" busy={busy === option.key} onPress={() => void answer(option.key, option.decision, option.choice)} style={styles.dockButton} />)}
@@ -383,17 +398,28 @@ export function QuestionDock({ item, conversation }: { item: Question; conversat
     const now = current[questionId] ?? []
     return { ...current, [questionId]: multi ? (now.includes(value) ? now.filter((each) => each !== value) : [...now, value]) : [value] }
   })
+  const body = useRef<DockScroll>(null)
+  const tops = useRef<Record<string, number>>({})
+  // A single answer picked moves on to the next question not yet answered, which may be off view.
+  const pick = (questionId: string, value: string, multi: boolean) => {
+    toggle(questionId, value, multi)
+    if (multi) return
+    const next = item.questions.find((question) => question.id !== questionId && !(picked[question.id]?.length))
+    const top = next ? tops.current[next.id] : undefined
+    if (top !== undefined) body.current?.scrollTo({ y: top, animated: true })
+  }
   const complete = item.questions.every((question) => (picked[question.id]?.length ?? 0) > 0)
   return (
     <View style={[styles.dock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <DockBody ref={body}>
       {item.questions.map((question) => (
-        <View key={question.id} style={styles.question}>
+        <View key={question.id} style={styles.question} onLayout={(event) => { tops.current[question.id] = event.nativeEvent.layout.y }}>
           <Text style={[type.rowTitle, { color: theme.text }]}>{question.question}</Text>
           {question.options.map((option) => {
             const value = option.id ?? option.label
             const chosen = picked[question.id]?.includes(value) ?? false
             return (
-              <Pressable key={value} disabled={!canOperate()} onPress={() => toggle(question.id, value, question.multiSelect)}
+              <Pressable key={value} disabled={!canOperate()} onPress={() => pick(question.id, value, question.multiSelect)}
                 style={[styles.option, { backgroundColor: chosen ? theme.accentSoft : theme.raised }]}>
                 <View style={styles.flex}>
                   <Text style={[type.secondary, { color: theme.text, fontWeight: '600' }]}>{option.label}</Text>
@@ -405,6 +431,7 @@ export function QuestionDock({ item, conversation }: { item: Question; conversat
           })}
         </View>
       ))}
+      </DockBody>
       {canOperate() ? (
         <Button label={t('submitAnswer')} kind="primary" busy={busy} disabled={!complete} wide onPress={() => {
           confirmTap()
@@ -559,8 +586,9 @@ const styles = StyleSheet.create({
   dockIcon: { width: 26, height: 26, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   dockLabel: { fontWeight: '700' },
   detail: { borderRadius: radius.sm, padding: space.sm, overflow: 'hidden' },
-  plan: { maxHeight: 300, borderRadius: radius.md },
-  planContent: { padding: space.md },
+  plan: { borderRadius: radius.md, padding: space.md },
+  dockBody: { flexGrow: 0 },
+  dockBodyContent: { gap: space.md },
   dockActions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, justifyContent: 'flex-end' },
   dockButton: { minHeight: 42, flexGrow: 1 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },

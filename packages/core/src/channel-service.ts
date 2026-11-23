@@ -100,8 +100,8 @@ export type ChannelServiceOptions = {
   changed: (channels: Channel[]) => void
   // The account an agent runs on, by its email: never to be said in an answer.
   identity?: (agent: AgentKind) => Promise<string | null>
-  // What the running daemon says it can do, and its pid; null when none answers.
-  daemon?: () => Promise<{ features: readonly string[]; pid: number } | null>
+  // Whether the running daemon can start a clean pipe, and its pid; null when none answers.
+  daemon?: () => Promise<{ cleanPipe: boolean; pid: number } | null>
   launch?: ChannelGatewayLauncher
   now?: () => number
   home?: string
@@ -173,7 +173,7 @@ export class ChannelService {
   async readiness(): Promise<ChannelReadiness> {
     const daemon = await this.options.daemon?.().catch(() => null) ?? null
     if (!daemon) return { daemon: 'unavailable', pid: null }
-    return daemon.features.includes('clean-pipe') ? { daemon: 'ready', pid: daemon.pid } : { daemon: 'outdated', pid: daemon.pid }
+    return daemon.cleanPipe ? { daemon: 'ready', pid: daemon.pid } : { daemon: 'outdated', pid: daemon.pid }
   }
 
   hasChannels(profileId: string): boolean {

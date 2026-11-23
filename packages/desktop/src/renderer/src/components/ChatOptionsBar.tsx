@@ -1,6 +1,7 @@
 import { getLocale, localized, t } from '../i18n'
 import { agentDescriptor, agentModeText, helperAllowsMode, isHelper, type AgentKind, type ChatItem, type ChatModel, type ChatOption, type ChatPermissionMode, type Conversation } from '@antumi/protocol'
-import { perform } from '../core-store'
+import { perform, setConversationAccount } from '../core-store'
+import { AccountPicker } from './AccountPicker'
 import { ChatModelPicker, ChatPicker, type PickerOption } from './ChatPicker'
 import { ContextUsage } from './ContextUsage'
 
@@ -90,6 +91,15 @@ export function ChatOptionsBar({ conversation, state, compact = false }: { conve
           disabled={managed || (!agentDescriptor(agent).capabilities.optionsWhileBusy && !idle)}
           title={managed ? t(conversation.profile ? 'AgentProfiles.fixedConfig' : 'ChatOptionsBar.useThisSquadSConfiguration') : later ?? undefined}
           onChange={(mode) => set('permissionMode', mode)}
+        />
+      )}
+      {!conversation.modelProvider && !isHelper(conversation) && (
+        <AccountPicker
+          agent={agent}
+          value={next?.account ?? null}
+          disabled={managed || !idle}
+          title={managed ? t(conversation.profile ? 'AgentProfiles.fixedConfig' : 'ChatOptionsBar.useThisSquadSConfiguration') : idle ? (running ? t('AccountPicker.restarts') : undefined) : t('AccountPicker.afterTurn')}
+          onChange={(account) => void setConversationAccount(id, account)}
         />
       )}
       <span className="chat-dock-spacer" />

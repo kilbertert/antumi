@@ -7,6 +7,7 @@ import { OverviewEntry } from './OverviewEntry'
 import { RoutinesEntry } from './RoutinesEntry'
 import { SidebarTasks } from './SidebarTasks'
 import { SquadsEntry } from './Squads'
+import { PluginPageEntries } from './PluginPageEntries'
 import './sidebar-navigation.css'
 
 export function openSidebarConversations(): void {
@@ -41,6 +42,7 @@ export function SidebarNavigation() {
       <OverviewEntry />
       <InboxEntry />
       <RoutinesEntry />
+      <PluginPageEntries />
       <SquadsEntry />
       <div className="sidebar-navigation-separator" role="separator" />
       <SidebarTasks />

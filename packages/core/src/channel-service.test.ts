@@ -164,8 +164,8 @@ describe('ChannelService', () => {
 
   it('says a daemon from before clean starts fails every question, and keeps the reason on the one that failed', async () => {
     const readiness = (daemon: ChannelServiceOptions['daemon']) => new ChannelService(store, { conversations, credentials, profile: () => profile, recentProjects: () => [repo], isRepo: async () => true, keepImage: async () => ({ id: 'x' }), changed: () => {}, daemon }).readiness()
-    expect(await readiness(async () => ({ features: ['agent-cli-maintenance'], pid: 42 }))).toEqual({ daemon: 'outdated', pid: 42 })
-    expect(await readiness(async () => ({ features: ['agent-cli-maintenance', 'clean-pipe'], pid: 42 }))).toEqual({ daemon: 'ready', pid: 42 })
+    expect(await readiness(async () => ({ cleanPipe: false, pid: 42 }))).toEqual({ daemon: 'outdated', pid: 42 })
+    expect(await readiness(async () => ({ cleanPipe: true, pid: 42 }))).toEqual({ daemon: 'ready', pid: 42 })
     expect(await readiness(async () => { throw new Error('no daemon') })).toEqual({ daemon: 'unavailable', pid: null })
     const real = daemon.request.bind(daemon)
     vi.spyOn(daemon, 'request').mockImplementation(async (method, params) => {

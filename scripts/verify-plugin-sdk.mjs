@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const manager = process.env.npm_execpath
 if (!manager) throw new Error('Run with pnpm verify:plugin-sdk')
@@ -28,12 +28,33 @@ try {
   const configFile = path.join(consumer, 'tsconfig.json')
   const config = JSON.parse(await readFile(configFile, 'utf8'))
   config.compilerOptions.skipLibCheck = false
-  config.include = ['src/main.ts']
+  config.include = ['src/main.ts', 'src/page.ts']
   await writeFile(configFile, JSON.stringify(config, null, 2))
+  await writeFile(path.join(consumer, 'src/page.ts'), `import { connect, type PageHost, type PageTheme } from '@antumi/plugin-sdk/page'
+import { runPlugin, type PluginPages } from '@antumi/plugin-sdk'
+const pages: PluginPages = { dashboard: { echo: (params) => params } }
+void runPlugin
+void pages
+export async function initialize(): Promise<PageHost> {
+  const host = await connect()
+  const theme: PageTheme = host.theme
+  void theme
+  return host
+}
+`)
   command(['install', '--ignore-scripts'], consumer)
   command(['run', 'typecheck'], consumer)
   command(['run', 'test'], consumer)
   command(['run', 'build'], consumer)
+  await writeFile(path.join(consumer, 'src/browser.ts'), `import { connect } from '@antumi/plugin-sdk/page'
+void connect()
+`)
+  command(['exec', 'esbuild', 'src/browser.ts', '--bundle', '--platform=browser', '--format=iife', '--outfile=dist/page.js'], consumer)
+  const browser = await readFile(path.join(consumer, 'dist/page.js'), 'utf8')
+  assert.doesNotMatch(browser, /(?:from|require\()\s*['"](?:zod|node:)/)
+  assert.match(browser, /antumiPluginPage/)
+  const pageEntry = await import(pathToFileURL(path.join(consumer, 'node_modules/@antumi/plugin-sdk/dist/page.js')).href)
+  assert.equal(typeof pageEntry.connect, 'function')
   const child = spawn(process.execPath, [path.join(consumer, 'dist/plugin/main.mjs')], { stdio: ['pipe', 'pipe', 'inherit'] })
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
   const timeout = setTimeout(() => child.kill(), 10_000)
@@ -51,6 +72,6 @@ try {
     assert.equal(message.type, 'result')
     assert.equal(message.result.key, 'EX-1')
     assert.match(message.result.markdown, /Example issue/)
-    process.stdout.write('Packed SDK: independent NodeNext typecheck, template tests, build and protocol smoke passed.\n')
+    process.stdout.write('Packed SDK: independent NodeNext typecheck, template tests, browser IIFE, both entry imports, build and protocol smoke passed.\n')
   } finally { clearTimeout(timeout); child.stdin.end(); child.kill() }
 } finally { await rm(directory, { recursive: true, force: true }) }

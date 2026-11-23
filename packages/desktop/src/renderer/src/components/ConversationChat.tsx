@@ -47,6 +47,8 @@ import { ChatMessageRelay, useMessageRelay } from './chat-message-relay'
 import { useChatTypeface } from '../chat-typeface'
 import { freshKeys, useJustFinished } from '../chat-motion'
 import { acknowledgeInitialMessage, sendInitialMessage, useInitialMessages, type InitialMessage } from '../initial-messages'
+import { acknowledgeChatDeliveries, NO_DELIVERIES, useChatDeliveries, withChatDeliveries, type ChatDelivery } from '../chat-deliveries'
+import { sendChatDelivery } from '../chat-delivery-send'
 import { Spinner } from './Spinner'
 import { InvestigationPreparing } from './InvestigationPreparing'
 import { InvestigationReference } from './InvestigationReference'
@@ -220,8 +222,23 @@ function UserQuotes({ quotes }: { quotes: ReturnType<typeof parseQuotes>['quotes
   )
 }
 
+function ChatDeliveryStatus({ conversationId, message }: { conversationId: string; message: ChatDelivery }) {
+  const surface = useChatSurface()
+  const rpc = useCore((state) => state.rpc)
+  const conversation = useCore((state) => state.conversations[conversationId])
+  const delivering = useChatDeliveries((messages) => messages[conversationId]?.some((entry) => entry.phase === 'sending') ?? false)
+  const failed = message.phase === 'failed'
+  return (
+    <div className="chat-user-delivery" data-failed={failed || undefined} role={failed ? 'alert' : 'status'}>
+      <span>{failed ? t('ChatDelivery.failed', { reason: message.error ?? t('ChatDelivery.notSent') }) : t('ChatDelivery.sending')}</span>
+      {failed && <button type="button" className="link-button" disabled={!rpc || delivering || Boolean(surface.sendBlocker) || Boolean(conversation?.starting) || Boolean(conversation?.preparing)} onClick={() => void sendChatDelivery(conversationId, message.ref, surface.prepareSend)}>{t('ChatContextMenu.retry')}</button>}
+    </div>
+  )
+}
+
 // A long message the user sent, such as a task's first prompt, shows its start until opened.
-function UserMessage({ item, pending = false }: { item: UserItem; pending?: boolean }) {
+function UserMessage({ conversationId, item, pending = false }: { conversationId: string; item: UserItem; pending?: boolean }) {
+  const delivery = useChatDeliveries((messages) => messages[conversationId]?.find((message) => item.id === `u:${message.ref}`))
   const [open, setOpen] = useDisclosure(`message:${itemKey(item)}`)
   const { byStage, current } = useContext(ChatAgent)
   const investigation = useContext(InvestigationPrompt)
@@ -242,7 +259,7 @@ function UserMessage({ item, pending = false }: { item: UserItem; pending?: bool
   return (
     <>
       {reference}
-      <div className="chat-user" data-clipped={(long && !open) || undefined} data-steer={item.steer || undefined}>
+      <div className="chat-user" data-message-id={item.id} data-clipped={(long && !open) || undefined} data-steer={item.steer || undefined}>
         {item.steer && <span className="chat-user-steer" title={t('ConversationChat.messageInsertedDuringTheTurn')}>{t('ConversationChat.additionalInstructions')}</span>}
         <ChatImageStrip images={item.images} />
         {quotes.length > 0 && <UserQuotes quotes={quotes} />}
@@ -255,7 +272,7 @@ function UserMessage({ item, pending = false }: { item: UserItem; pending?: bool
           </button>
         </div>
       )}
-      {!pending && <UserMessageFooter item={item} />}
+      {!pending && (delivery ? <ChatDeliveryStatus conversationId={conversationId} message={delivery} /> : <UserMessageFooter item={item} />)}
     </>
   )
 }
@@ -265,7 +282,7 @@ function InitialMessageEntry({ id, agent, message }: { id: string; agent: AgentK
   return (
     <>
       <div className="chat-entry" data-user>
-        <UserMessage pending item={{ kind: 'user', id: `u:${message.ref}`, stageId: 'pending', revision: 0, at: message.at, text: message.text, images: message.images, references: message.references }} />
+        <UserMessage conversationId={id} pending item={{ kind: 'user', id: `u:${message.ref}`, stageId: 'pending', revision: 0, at: message.at, text: message.text, images: message.images, references: message.references }} />
       </div>
       {message.phase === 'failed' ? (
         <div className="chat-initial-error chat-notice" data-level="error" role="alert">
@@ -374,7 +391,7 @@ function Item({ conversationId, item, completedAt, blockKey }: { conversationId:
   switch (item.kind) {
     case 'user':
       if (isAgentCallResult(item)) return <AgentDelegationResult conversationId={conversationId} item={item} />
-      return <UserMessage item={item} />
+      return <UserMessage conversationId={conversationId} item={item} />
     case 'assistant':
       return <AssistantReply conversationId={conversationId} item={item} completedAt={completedAt} ending={ending} blockKey={blockKey} />
     case 'reasoning':
@@ -594,6 +611,7 @@ function Block({ conversationId, block, task, replies, fresh }: { conversationId
 export function ConversationChat({ conversation, surface, onHandoff, variant = 'full' }: { conversation: Conversation; surface?: ChatSurface; onHandoff?: (agent?: AgentKind) => void; variant?: 'full' | 'compact' }) {
   const { id } = conversation
   const initialMessage = useInitialMessages((messages) => messages[id])
+  const deliveries = useChatDeliveries((messages) => messages[id] ?? NO_DELIVERIES)
   const width = usePreferences((s) => s.chatWidth)
   const typeface = useChatTypeface()
   const view = useRef<HTMLDivElement>(null)
@@ -640,7 +658,8 @@ export function ConversationChat({ conversation, surface, onHandoff, variant = '
     }
   }, [rpc, id, conversation.sessionId])
 
-  const items = page?.items ?? NO_ITEMS
+  const actualItems = page?.items ?? NO_ITEMS
+  const items = useMemo(() => withChatDeliveries(actualItems, deliveries), [actualItems, deliveries])
   // A partial history must not label a later message as the original investigation prompt.
   const firstPrompt = !page?.before ? items.find((item) => item.kind === 'user' && !isAgentCallResult(item)) : undefined
   const investigation = conversation.source && !page?.before ? {
@@ -650,6 +669,7 @@ export function ConversationChat({ conversation, surface, onHandoff, variant = '
   } : null
   const browserTabs = useWatchBrowserTabs(items.some((item) => item.kind === 'tool' && isBrowserTool(item.name)) ? id : null)
   useEffect(() => acknowledgeInitialMessage(id, items), [id, items])
+  useEffect(() => acknowledgeChatDeliveries(id, actualItems), [id, actualItems, deliveries])
   // A task's redos, each starting its chat over.
   const attempts = useCore((s) => (conversation.taskId ? s.tasks[conversation.taskId]?.attempts : undefined))
   const redoneAt = useMemo(() => (attempts ?? []).map((attempt) => attempt.at), [attempts, getLocale()])
@@ -932,7 +952,7 @@ export function ConversationChat({ conversation, surface, onHandoff, variant = '
         }}
       >
         {page?.before && <button type="button" className="link-button chat-older" onClick={() => void loadOlder()}>{t('ConversationChat.loadEarlierMessages')}</button>}
-        {!page && !initialMessage && !conversation.preparing && <ChatSkeleton />}
+        {!page && !initialMessage && deliveries.length === 0 && !conversation.preparing && <ChatSkeleton />}
         {blocks.map((block, index) => {
           const next = blocks[index + 1]
           const message = userItem(block)
@@ -944,9 +964,9 @@ export function ConversationChat({ conversation, surface, onHandoff, variant = '
           // and the turn runs, before the agent has said anything, and kept in place once it does.
           const head = sentAt !== null && (next ? userAt(next) === null : live !== null)
           return (
-            <Fragment key={block.key}>
+            <Fragment key={message?.id.startsWith('u:') ? message.id : block.key}>
               <ActivityBlock conversationId={id} block={block} next={next} task={Boolean(conversation.taskId)} replies={replies} fresh={entering} />
-              {variant !== 'compact' && head && message && <div className="chat-entry" data-fresh={entering || undefined}><TurnHead at={message.at} stageId={message.stageId} messageKey={block.key} live={live} /></div>}
+              {variant !== 'compact' && head && message && <div className="chat-entry" data-fresh={entering || undefined}><TurnHead at={message.at} stageId={message.stageId} messageKey={message.id} live={live} /></div>}
             </Fragment>
           )
         })}

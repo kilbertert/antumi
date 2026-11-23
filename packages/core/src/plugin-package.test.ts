@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { copyPlugin, extractPlugin, packagePath, readManifest, stagePlugin } from './plugin-package'
+import { copyPlugin, extractPlugin, githubPluginPackages, packagePath, readManifest, stagePlugin } from './plugin-package'
 import { pluginFixture, pluginZip } from './plugin-fixtures'
 
 describe('plugin packages', () => {
@@ -45,6 +45,57 @@ describe('plugin packages', () => {
   it.each(['0.14.99', '0.14.99-beta.2', '1.0.0', '1.1.0-beta.1', '2.0.0', 'invalid'])('rejects hosts outside the declared range or invalid: %s', async (version) => {
     await pluginFixture(root)
     await expect(readManifest(root, version)).rejects.toThrow('不兼容')
+  })
+
+  it('accepts page assets but refuses fonts', async () => {
+    await extractPlugin(pluginZip(Object.fromEntries(['html', 'css', 'svg', 'png', 'jpg', 'jpeg', 'webp', 'gif'].map((extension) => [`page/asset.${extension}`, 'asset']))), root)
+    await expect(extractPlugin(pluginZip({ 'page/font.woff2': 'font' }), root)).rejects.toThrow()
+    const from = path.join(root, 'font-input')
+    const to = path.join(root, 'font-output')
+    await mkdir(from); await mkdir(to)
+    await writeFile(path.join(from, 'font.woff2'), 'font')
+    await expect(copyPlugin(from, to)).rejects.toThrow()
+  })
+
+  it.each(['index.html', 'page/missing.html', '../page.html', 'page/index.js'])('refuses invalid page entry %s', async (entry) => {
+    const manifest = await pluginFixture(root)
+    await writeFile(path.join(root, 'manifest.json'), JSON.stringify({ ...manifest, contributes: { pages: [{ id: 'demo', label: 'Demo', entry }] } }))
+    await expect(readManifest(root, '0.19.6')).rejects.toThrow()
+  })
+
+  it('names a missing page entry without its path, and keeps the backend out of a page directory', async () => {
+    const manifest = await pluginFixture(root)
+    const page = (entry: string) => JSON.stringify({ ...manifest, contributes: { pages: [{ id: 'demo', label: 'Demo', entry }] } })
+    await writeFile(path.join(root, 'manifest.json'), page('gone/index.html'))
+    await expect(readManifest(root, '0.19.6')).rejects.toThrow(/^找不到插件页面入口$/)
+    await mkdir(path.join(root, 'dist'))
+    await writeFile(path.join(root, 'dist/index.html'), '<!doctype html>')
+    await writeFile(path.join(root, 'dist/main.mjs'), '')
+    await writeFile(path.join(root, 'manifest.json'), JSON.stringify({ ...JSON.parse(page('dist/index.html')), entry: { runtime: 'node', main: 'dist/main.mjs' } }))
+    await expect(readManifest(root, '0.19.6')).rejects.toThrow('不能包含插件入口')
+  })
+
+  it('refuses duplicate pages and checks the host before an unfamiliar manifest shape', async () => {
+    const manifest = await pluginFixture(root, { source: null, pages: [{ id: 'demo', label: 'Demo', entry: 'page/index.html' }] })
+    await writeFile(path.join(root, 'manifest.json'), JSON.stringify({ ...manifest, contributes: { pages: [...manifest.contributes.pages, ...manifest.contributes.pages] } }))
+    await expect(readManifest(root, '0.19.6')).rejects.toThrow('重复')
+    await writeFile(path.join(root, 'manifest.json'), JSON.stringify({ ...manifest, engines: { antumi: '>=9.0.0' }, contributes: { future: true } }))
+    await expect(readManifest(root, '0.19.6')).rejects.toThrow('插件版本无效或不兼容当前 Antumi')
+  })
+
+  it('lists every ZIP on the latest release and refuses a release with none', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/releases/latest')) return Response.json({ tag_name: 'v2', assets: [
+        { name: 'linuxdo.zip', browser_download_url: 'https://github.com/demo/plugin/releases/download/v2/linuxdo.zip' },
+        { name: 'notes.txt', browser_download_url: 'https://github.com/demo/plugin/releases/download/v2/notes.txt' },
+        { name: 'v2ex.zip', browser_download_url: 'https://github.com/demo/plugin/releases/download/v2/v2ex.zip' }
+      ] })
+      throw new Error(`Unexpected request ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    await expect(githubPluginPackages('demo/plugin')).resolves.toEqual({ tag: 'v2', packages: ['linuxdo.zip', 'v2ex.zip'] })
+    fetch.mockResolvedValue(Response.json({ tag_name: 'v2', assets: [] }))
+    await expect(githubPluginPackages('demo/plugin')).rejects.toThrow('必须有一个插件 ZIP')
   })
 
   it('downloads only the selected release asset and requires an unambiguous ZIP', async () => {

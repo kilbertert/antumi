@@ -1,7 +1,7 @@
 import { createContext, useEffect, useState } from 'react'
 import { create } from 'zustand'
 import { isBrowserTool, type AgentKind, type BrowserTab, type RpcConnection } from '@antumi/protocol'
-import { perform, showBrowserPanel, useCore } from './core-store'
+import { perform, showBrowserPanel, showBrowserTab, useCore } from './core-store'
 import { focusPanelWindow, sendPanelCommand } from './desktop-bridge'
 import { urlPath } from './file-links'
 import { usePreferences } from './preferences'
@@ -156,6 +156,22 @@ export async function openFileInBrowser(path: string, conversationId: string): P
   } else {
     focusBrowserTab(tab.id)
   }
+}
+
+// A web page the user asked for from outside the browser (a link in a plugin's page), in a tab of
+// their own with the panel up on it, as a port is opened. Without a browser in core it goes to the
+// system's, as a link in a reply does.
+export async function openWebPage(url: string): Promise<void> {
+  if (!useCore.getState().rpc?.features.includes('browser')) {
+    window.open(url, '_blank', 'noreferrer')
+    return
+  }
+  showBrowserPanel(null)
+  const tab = await perform(async (rpc) => {
+    await rpc.call('browser.watchAll', {})
+    return rpc.call('browser.newTab', { url })
+  })
+  if (tab) showBrowserTab(tab.id)
 }
 
 // Follows every tab while the browser panel is up.

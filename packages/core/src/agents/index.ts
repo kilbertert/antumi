@@ -11,6 +11,8 @@ import { antigravity } from './antigravity/antigravity-adapter'
 import { zcode } from './zcode/zcode-adapter'
 import { kimi } from './kimi/kimi-adapter'
 import { gemini } from './gemini/gemini-adapter'
+import { codebuddy } from './codebuddy/codebuddy-adapter'
+import { codearts } from './codearts/codearts-adapter'
 
 // Hooks that only work together: a stalled turn is stopped and offered for retry. An adapter
 // declaring one without the other fails as core starts rather than mid-turn.
@@ -23,7 +25,7 @@ export function checkAdapter(adapter: AgentAdapter): AgentAdapter {
 }
 
 // One adapter per agent kind: one left out fails to compile.
-export const AGENT_ADAPTERS = { claude: checkAdapter(claude), codex: checkAdapter(codex), cursor: checkAdapter(cursor), opencode: checkAdapter(opencode), pi: checkAdapter(pi), dsh: checkAdapter(dsh), antigravity: checkAdapter(antigravity), zcode: checkAdapter(zcode), kimi: checkAdapter(kimi), gemini: checkAdapter(gemini) } satisfies Record<AgentKind, AgentAdapter>
+export const AGENT_ADAPTERS = { claude: checkAdapter(claude), codex: checkAdapter(codex), cursor: checkAdapter(cursor), opencode: checkAdapter(opencode), pi: checkAdapter(pi), dsh: checkAdapter(dsh), antigravity: checkAdapter(antigravity), zcode: checkAdapter(zcode), kimi: checkAdapter(kimi), gemini: checkAdapter(gemini), codebuddy: checkAdapter(codebuddy), codearts: checkAdapter(codearts) } satisfies Record<AgentKind, AgentAdapter>
 
 export function adapterOf(kind: AgentKind): AgentAdapter {
   return AGENT_ADAPTERS[kind]

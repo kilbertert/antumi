@@ -1,14 +1,11 @@
-import { createContext, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { createContext, useLayoutEffect, useRef, type RefObject } from 'react'
 import type { ChatItem } from '@antumi/protocol'
-import { relayMessage, type RelayMessage } from '../chat-message-relay'
-import { entryKey, itemKey } from '../chat-state'
+import { relayMessage } from '../chat-message-relay'
 
-type Receipt = { accept(): void; cancel(): void }
-type BeginRelay = (text: string, images: readonly string[], source: HTMLElement | null) => Receipt
-const NO_RELAY: Receipt = { accept() {}, cancel() {} }
-export const ChatMessageRelay = createContext<BeginRelay>(() => NO_RELAY)
+type BeginRelay = (ref: string, source: HTMLElement | null) => void
+export const ChatMessageRelay = createContext<BeginRelay>(() => {})
 
-type PendingRelay = RelayMessage & { accepted: boolean; origin: DOMRect }
+type PendingRelay = { ref: string; origin: DOMRect }
 
 // The copy's flight from the composer to its place in the list, the crossfade to the real bubble
 // at the end of it, and the dot's run on to the agent's icon. The way is only the height of the
@@ -30,11 +27,9 @@ const ARC_PX = 24
 // lands, and the dot is the handover to it.
 const RECEIVER_WAIT_MS = 1200
 
-// Where the line runs to: the head of the turn that answers the message, else the working line,
-// polled for a moment while the turn opens.
+// Wait briefly for the head of the turn that answers this message.
 async function receiverFor(view: HTMLElement, key: string, disposed: () => boolean): Promise<HTMLElement | null> {
   const find = () => view.querySelector<HTMLElement>(`[data-relay-for="${CSS.escape(key)}"]`)
-    ?? view.querySelector<HTMLElement>('.chat-working')
   const until = performance.now() + RECEIVER_WAIT_MS
   let found = find()
   while (!found && !disposed() && performance.now() < until) {
@@ -173,12 +168,9 @@ function playRelay(view: HTMLElement, list: HTMLElement, message: HTMLElement, o
 
 export function useMessageRelay(view: RefObject<HTMLDivElement | null>, list: RefObject<HTMLDivElement | null>, items: readonly ChatItem[], conversationId: string): BeginRelay {
   const pending = useRef<PendingRelay | null>(null)
-  const currentItems = useRef(items)
-  currentItems.current = items
   const activeConversation = useRef<string | null>(conversationId)
   const playing = useRef<(() => void) | null>(null)
   const expiry = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [receipt, setReceipt] = useState(0)
 
   useLayoutEffect(() => {
     activeConversation.current = conversationId
@@ -192,40 +184,27 @@ export function useMessageRelay(view: RefObject<HTMLDivElement | null>, list: Re
 
   useLayoutEffect(() => {
     const sent = pending.current
-    if (!sent?.accepted || !view.current || !list.current) return
-    const matched = relayMessage(items, sent)
-    if (!matched) return
+    if (!sent || !view.current || !list.current) return
+    if (!relayMessage(items, sent.ref)) return
+    const bubble = list.current.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(`u:${sent.ref}`)}"]`)
+    if (!bubble) return
     pending.current = null
     if (expiry.current) clearTimeout(expiry.current)
+    list.current.scrollTop = list.current.scrollHeight
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const key = entryKey({ kind: 'item', item: matched })
-    const bubble = list.current.querySelector<HTMLElement>(`[data-entry-key="${CSS.escape(key)}"] .chat-user`)
-    if (!bubble) return
     const target = bubble.getBoundingClientRect()
     const visible = list.current.getBoundingClientRect()
     if (target.top < visible.top || target.bottom > visible.bottom || target.width === 0) return
     playing.current?.()
-    playing.current = playRelay(view.current, list.current, bubble, sent.origin, key)
-  }, [items, receipt, view, list])
+    playing.current = playRelay(view.current, list.current, bubble, sent.origin, `u:${sent.ref}`)
+  }, [items, view, list])
 
-  return (text, images, source) => {
-    if (!source || activeConversation.current !== conversationId || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return NO_RELAY
+  return (ref, source) => {
+    if (!source || activeConversation.current !== conversationId) return
     playing.current?.()
     if (expiry.current) clearTimeout(expiry.current)
-    const sent: PendingRelay = { text, images, known: new Set(currentItems.current.map(itemKey)), origin: source.getBoundingClientRect(), accepted: false }
+    const sent: PendingRelay = { ref, origin: source.getBoundingClientRect() }
     pending.current = sent
     expiry.current = setTimeout(() => { if (pending.current === sent) pending.current = null }, 10_000)
-    return {
-      accept() {
-        if (pending.current !== sent) return
-        sent.accepted = true
-        setReceipt((current) => current + 1)
-      },
-      cancel() {
-        if (pending.current !== sent) return
-        pending.current = null
-        if (expiry.current) clearTimeout(expiry.current)
-      }
-    }
   }
 }

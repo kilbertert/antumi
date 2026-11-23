@@ -6,6 +6,7 @@ import { handoffMessage, type ChatItem, type Conversation } from '@antumi/protoc
 import { useCore } from '../core-store'
 import { useChat } from '../chat-state'
 import { useInitialMessages } from '../initial-messages'
+import { keepChatDelivery, useChatDeliveries } from '../chat-deliveries'
 import { ConversationChat } from './ConversationChat'
 
 vi.hoisted(() => {
@@ -34,6 +35,31 @@ beforeEach(() => {
   useCore.setState(useCore.getInitialState(), true)
   useChat.setState({ [conversation.id]: { items: [first, next], before: null } }, true)
   useInitialMessages.setState({}, true)
+  useChatDeliveries.setState({}, true)
+})
+
+describe('outgoing messages', () => {
+  const ref = '22222222-2222-4222-8222-222222222222'
+  const outgoing = { ref, text: '立即发送的内容', images: [], stageId: 'pending', at: 2 }
+
+  it('shows the local bubble with sending status before any server message', () => {
+    keepChatDelivery(conversation.id, outgoing)
+    const html = render()
+    expect(html.match(/立即发送的内容/g)).toHaveLength(1)
+    expect(html).toContain('发送中…')
+    expect(html).toContain(`data-message-id="u:${ref}"`)
+  })
+
+  it('shows failure and retry below one bubble even when core already recorded it', () => {
+    keepChatDelivery(conversation.id, outgoing)
+    useChatDeliveries.setState({ [conversation.id]: [{ ...outgoing, phase: 'failed', error: '网络断开' }] })
+    useChat.setState({ [conversation.id]: { items: [first, message(`u:${ref}`, outgoing.text)], before: null } }, true)
+    const html = render()
+    expect(html.match(/立即发送的内容/g)).toHaveLength(1)
+    expect(html).toContain('发送失败：网络断开')
+    expect(html).toContain('重试')
+    expect(html.indexOf('立即发送的内容')).toBeLessThan(html.indexOf('发送失败：网络断开'))
+  })
 })
 
 describe('investigation prompt reference', () => {

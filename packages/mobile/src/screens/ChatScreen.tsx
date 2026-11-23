@@ -5,7 +5,7 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import { ArrowUp, ChevronDown, MessageSquare, Plus, SlidersHorizontal, Square, X } from 'lucide-react-native'
-import { chatItemKey, conversationAsking, conversationWaiting, conversationWorking, isSubagent, type ChatItem, type ChatOption, type Conversation } from '@antumi/protocol'
+import { chatItemKey, conversationAsking, conversationWaiting, conversationWorking, formatTokens, isSubagent, type ChatContextUse, type ChatItem, type ChatOption, type Conversation } from '@antumi/protocol'
 import {
   ApprovalDock, AssistantText, ChatImageView, ChatNotice, NoticeLine, ProjectRoots, QuestionDock, ReasoningLine, RequestLine, TodosCard, ToolGroup, TurnEnd, TurnHead, UsageLimitLine, UserMessage,
   WorkingLine, type Approval, type Question, type Tool
@@ -35,6 +35,20 @@ function latestState(items: readonly ChatItem[]): StateItem | null {
     if (item.kind === 'state') return item
   }
   return null
+}
+
+// Where the conversation runs, then how full its context is: by share of the window, or only the
+// tokens where the agent reports no window. Tinted as it nears full, at the desktop's thresholds.
+function Subtitle({ place, context }: { place: string; context: ChatContextUse | null }) {
+  const theme = useTheme()
+  const ratio = context?.window ? Math.min(1, context.used / context.window) : null
+  const color = ratio === null || ratio < 0.6 ? theme.textMuted : ratio < 0.85 ? theme.waiting : theme.danger
+  return (
+    <Text style={[type.caption, { color: theme.textMuted }]} numberOfLines={1}>
+      {place}
+      {context ? <> · <Text style={{ color }}>{t('contextUse', { value: ratio === null ? formatTokens(context.used) : `${Math.round(ratio * 100)}%` })}</Text></> : null}
+    </Text>
+  )
 }
 
 function openRequest(items: readonly ChatItem[]): Approval | Question | null {
@@ -258,7 +272,7 @@ export function ChatScreen({ id }: { id: string }) {
   return (
     <Screen
       title={conversation.title || where(conversation)}
-      subtitle={where(conversation)}
+      subtitle={<Subtitle place={where(conversation)} context={state?.context ?? conversation.context ?? null} />}
       onBack={() => pop()}
       scroll={false}
       actions={operate && !caller && (state || handoff) ? <IconButton icon={SlidersHorizontal} label={t('options')} onPress={() => setOptions(true)} /> : null}

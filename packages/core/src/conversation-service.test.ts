@@ -1216,7 +1216,7 @@ describe('ConversationService', () => {
     await service.setOption(created.id, 'model', 'sonnet')
     await service.setOption(created.id, 'effort', 'high')
     await service.setOption(created.id, 'permissionMode', 'plan')
-    expect(service.get(created.id).chatOptions).toEqual({ permissionMode: 'plan', model: 'sonnet', effort: 'high' })
+    expect(service.get(created.id).chatOptions).toEqual({ permissionMode: 'plan', model: 'sonnet', effort: 'high', account: null })
     await expect(service.setOption(created.id, 'model', 'opus')).rejects.toMatchObject({ reason: 'chat-option-invalid' })
     await expect(service.setOption(created.id, 'effort', 'max')).rejects.toMatchObject({ reason: 'chat-option-invalid' })
     await expect(service.setOption(created.id, 'permissionMode', 'readOnly')).rejects.toMatchObject({ reason: 'chat-option-invalid' })

@@ -158,7 +158,7 @@ export function toDingtalk(markdown: string): string {
 }
 
 // As the platform writes text: its escaping and its marks for bold, links and code.
-const FORMATTERS = { slack: toSlack, feishu: toFeishu, dingtalk: toDingtalk } satisfies Record<ChannelPlatform, (markdown: string) => string>
+const FORMATTERS = { slack: toSlack, feishu: toFeishu, lark: toFeishu, dingtalk: toDingtalk } satisfies Record<ChannelPlatform, (markdown: string) => string>
 
 // In pieces of at most limit, cut between paragraphs, else lines, else anywhere; a code block cut
 // in two is closed in one piece and opened again in the next.

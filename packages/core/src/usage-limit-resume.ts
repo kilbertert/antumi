@@ -59,6 +59,8 @@ export class UsageLimitResumes {
   private switchedTo(conversationId: string, item: LimitItem): string | null {
     const stage = this.conversations.stages(conversationId).find((each) => each.id === item.stageId)
     if (!stage?.account || stage.route) return null
+    // One the user chose its account for stays on it, and waits for its reset.
+    if (this.conversation(conversationId)?.chatOptions?.account) return null
     return this.switchAccount(stage.agent, stage.account)
   }
 

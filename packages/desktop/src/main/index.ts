@@ -1,16 +1,16 @@
-import { appendFileSync, mkdirSync } from 'node:fs'
-import { readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { dirname, extname, isAbsolute, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, protocol, screen, session, shell, type OpenDialogOptions, type WebContents } from 'electron'
 import { z } from 'zod'
-import { connectRpc, coreUrl, resolveUiLocale, UiLocale } from '@antumi/protocol'
+import { connectRpc, coreUrl, PLUGIN_PAGE_SCHEME, PluginPageFiles, resolveUiLocale, UiLocale } from '@antumi/protocol'
 import { applicationMenu } from './application-menu'
 import { ShortcutAction, ShortcutSettings } from '../shared/keyboard-shortcuts'
-import { antumiPaths, readCoreEndpoint } from '@antumi/protocol/node'
-import { ensureBackend, remoteCoreProblem, replaceOldDaemon, stopBackendForInstall, stopRemoteLink } from './backend'
-import { readRemoteConfig } from './remote-core'
+import { readCoreEndpoint } from '@antumi/protocol/node'
+import { ensureBackend } from './backend'
+import { AppBackend } from './app-backend'
+import { BackendLocation } from '../shared/backend-location'
 import { popupWindowOptions, RequestPopup } from './request-popup'
 import { defaultIslandMode, islandDisplay } from './popup-placement'
 import { PanelWindows, parseDockPayload, parseHandoff, parsePanelCommands, parsePanelKind } from './panel-windows'
@@ -25,6 +25,7 @@ import { AppUpdater, InstallBlocked } from './app-update'
 import { bundleOf, leftovers, stageFromDmg, swapBlocked, swapInto } from './app-bundle-swap'
 import { appImageBlocked, replaceAppImage } from './app-image-swap'
 import { VisualizationPages } from './visualization-pages'
+import { PluginPageBundles } from './plugin-page-bundles'
 import { VISUALIZATION_SCHEME } from '../shared/visualization-policy'
 import { previewHtml } from './preview-html'
 
@@ -34,6 +35,16 @@ const slot = new WindowSlot()
 let browserHost: BrowserHost | null = null
 let mainWindow: BrowserWindow | null = null
 let uiLocale: UiLocale = 'en'
+// Daemon and core, on this machine or in a WSL distro: asked here for where core is and how a
+// path of its reads on this machine.
+const backend = new AppBackend({
+  locationFile: join(app.getPath('userData'), 'backend.json'),
+  privateHostFile: join(app.getPath('userData'), 'wsl-browser-host.json'),
+  version: app.getVersion(),
+  packaged: app.isPackaged,
+  platform: process.platform,
+  resources: process.resourcesPath
+})
 const uiText = (en: string, zh: string): string => uiLocale === 'en' ? en : zh
 const PRELOAD = join(__dirname, '../preload/index.js')
 
@@ -42,9 +53,11 @@ const PRELOAD = join(__dirname, '../preload/index.js')
 const PREVIEW_SCHEME = 'antumi-preview'
 protocol.registerSchemesAsPrivileged([
   { scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
-  { scheme: VISUALIZATION_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }
+  { scheme: VISUALIZATION_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: PLUGIN_PAGE_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }
 ])
 const visualizationPages = new VisualizationPages()
+const pluginPages = new PluginPageBundles()
 
 const PREVIEW_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.svg': 'image/svg+xml', '.css': 'text/css; charset=utf-8',
@@ -98,13 +111,13 @@ async function servePreview(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const named = decodeURIComponent(url.pathname)
   // A Windows path comes as /C:/x (see urlPath in the renderer).
-  const path = process.platform === 'win32' && /^\/[a-zA-Z]:\//.test(named) ? named.slice(1) : named
-  if (url.host !== 'file' || !isAbsolute(path)) return new Response('not found', { status: 404 })
-  // Remote mode: the file lives on the machine that runs the agents, so it is read through core
-  // rather than off this disk. Same scheme and same URL, so the chat renderer needs no change;
-  // only the text/binary split differs, which is why images fall into 'unavailable' here — see
-  // REMOTE-CORE.md §4.4 for the RPC that would close that gap.
-  if (readRemoteConfig().kind === 'on') return serveRemotePreview(path)
+  const spelled = process.platform === 'win32' && /^\/[a-zA-Z]:\//.test(named) ? named.slice(1) : named
+  // A remote backend's files are not on this machine; they are read through core instead (the
+  // binary side of the gap is docs/REMOTE-CORE.md §4.4).
+  if (backend.isRemote()) return serveRemotePreview(spelled)
+  // A file of a backend in WSL is read where this machine reaches it.
+  const path = backend.fromBackendPath(spelled)
+  if (url.host !== 'file' || !path || !isAbsolute(path)) return new Response('not found', { status: 404 })
   try {
     // The path as it really is: a link may not lead the frame somewhere else under a page's name.
     const real = await realpath(path)
@@ -176,12 +189,16 @@ function createWindow(): void {
 
 function loadRenderer(win: BrowserWindow, hash?: string): void {
   const owner = win.webContents.id
-  // A visualization may run scripts, but cannot replace its sandbox with a remote page.
+  // A visualization or a plugin page may run scripts, but cannot replace its sandbox with a remote
+  // page, nor with another of its kind: only the renderer points a frame at one.
+  const framed = [PREVIEW_SCHEME, VISUALIZATION_SCHEME, PLUGIN_PAGE_SCHEME].map((scheme) => `${scheme}:`)
   win.webContents.on('will-frame-navigate', (event) => {
-    if (!event.isMainFrame && (event.frame?.url === 'about:srcdoc' || event.frame?.url.startsWith(`${VISUALIZATION_SCHEME}:`) || !event.url.startsWith(`${PREVIEW_SCHEME}:`) && !event.url.startsWith(`${VISUALIZATION_SCHEME}:`) && event.url !== 'about:blank')) event.preventDefault()
+    const from = event.frame?.url ?? ''
+    if (!event.isMainFrame && (from.startsWith(`${VISUALIZATION_SCHEME}:`) || from.startsWith(`${PLUGIN_PAGE_SCHEME}:`) || !framed.some((scheme) => event.url.startsWith(scheme)) && event.url !== 'about:blank')) event.preventDefault()
   })
-  win.webContents.on('destroyed', () => visualizationPages.remove(owner))
-  win.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) visualizationPages.remove(owner) })
+  const release = () => { visualizationPages.remove(owner); pluginPages.removeOwner(owner) }
+  win.webContents.on('destroyed', release)
+  win.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) release() })
   // A file dropped outside a drop target would otherwise replace the app with that file.
   win.webContents.on('will-navigate', (event, url) => {
     if (url !== win.webContents.getURL()) {
@@ -369,25 +386,6 @@ ipcMain.on('antumi:panel-shortcut', (event, payload: unknown) => {
 
 // The version that runs, which a build may set apart from the source's package.json (a beta).
 ipcMain.handle('antumi:app-version', () => app.getVersion())
-// Saving a file the user asked to download. The renderer sends the bytes it already has (they came
-// over RPC from the source's own API) and the main process only asks where to put them: a page
-// cannot write to an arbitrary path, and it should not get to choose one silently either.
-ipcMain.handle('antumi:save-download', async (event, payload: unknown) => {
-  const parsed = z.object({ name: z.string().min(1).max(300), base64: z.string() }).safeParse(payload)
-  if (!parsed.success) return { ok: false as const, reason: 'invalid' }
-  const { name, base64 } = parsed.data
-  // The name is only a suggestion: it is sanitized before it reaches the dialog, and the dialog's
-  // answer is what is written.
-  const suggested = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 200) || 'attachment'
-  const answer = await dialog.showSaveDialog({ defaultPath: join(app.getPath('downloads'), suggested) })
-  if (answer.canceled || !answer.filePath) return { ok: false as const, reason: 'cancelled' }
-  try {
-    await writeFile(answer.filePath, Buffer.from(base64, 'base64'))
-    return { ok: true as const, path: answer.filePath }
-  } catch (error) {
-    return { ok: false as const, reason: error instanceof Error ? error.message : 'write-failed' }
-  }
-})
 ipcMain.handle('antumi:visualization-create', (event, document: unknown) => {
   if (event.senderFrame !== event.sender.mainFrame) throw new Error('Invalid visualization owner')
   return visualizationPages.create(event.sender.id, document)
@@ -395,11 +393,48 @@ ipcMain.handle('antumi:visualization-create', (event, document: unknown) => {
 ipcMain.handle('antumi:visualization-remove', (event, url: unknown) => {
   if (event.senderFrame === event.sender.mainFrame && typeof url === 'string') visualizationPages.remove(event.sender.id, url)
 })
+ipcMain.handle('antumi:plugin-page-create', (event, files: unknown) => {
+  if (event.senderFrame !== event.sender.mainFrame) throw new Error('Invalid plugin page owner')
+  return pluginPages.create(event.sender.id, PluginPageFiles.parse(files))
+})
+ipcMain.handle('antumi:plugin-page-remove', (event, url: unknown) => {
+  if (event.senderFrame !== event.sender.mainFrame) throw new Error('Invalid plugin page owner')
+  if (typeof url === 'string') pluginPages.remove(event.sender.id, url)
+})
 
-// Re-read on every call: core rewrites the file with a new port/token on restart.
-ipcMain.handle('antumi:core-endpoint', () => readCoreEndpoint())
+ipcMain.handle('antumi:core-endpoint', () => backend.coreEndpoint())
+
 // Remote mode's failure is not a local core the user can start, so it has to say its own reason.
-ipcMain.handle('antumi:remote-problem', () => remoteCoreProblem())
+ipcMain.handle('antumi:remote-problem', () => backend.remoteProblem())
+
+// Where the backend runs, and the choice of it for the next start: the app talks to one backend
+// for as long as it runs, so a new choice restarts it.
+ipcMain.handle('antumi:backend-location', () => backend.state())
+ipcMain.handle('antumi:backend-location-set', async (_event, location: unknown) => {
+  const parsed = BackendLocation.safeParse(location)
+  if (!parsed.success) return false
+  await backend.choose(parsed.data)
+  app.relaunch()
+  app.quit()
+  return true
+})
+// A file dropped on the window, named as core reads it. Synchronous, as the drop's handler is.
+ipcMain.on('antumi:backend-path', (event, path: unknown) => {
+  event.returnValue = typeof path === 'string' ? backend.toBackendPath(path) : null
+})
+
+// A folder or file the user picked, as core names it. One a backend elsewhere cannot reach (another
+// distro's, a network share, anything of this machine's under remote) is said so rather than
+// handed over as a path that leads nowhere.
+function picked(window: BrowserWindow | null, path: string | undefined): string | null {
+  if (!path) return null
+  const named = backend.toBackendPath(path)
+  if (named) return named
+  const options = { type: 'warning' as const, message: uiText('This place cannot be reached from the machine Antumi runs its backend on', '运行 Antumi 后端的机器访问不到这个位置'), detail: path }
+  if (window && !window.isDestroyed()) dialog.showMessageBoxSync(window, options)
+  else dialog.showMessageBoxSync(options)
+  return null
+}
 
 // Drives prefers-color-scheme in every window and the native chrome with it.
 ipcMain.handle('antumi:set-theme', (_event, theme: unknown) => {
@@ -438,22 +473,30 @@ ipcMain.handle('antumi:pick-plugin', async (event, kind: unknown) => {
     : { title: uiText('Choose plugin ZIP', '选择插件 ZIP'), properties: ['openFile'], filters: [{ name: uiText('Plugin ZIP', '插件 ZIP'), extensions: ['zip'] }] }
   const window = BrowserWindow.fromWebContents(event.sender)
   const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
-  return result.canceled ? null : (result.filePaths[0] ?? null)
+  return result.canceled ? null : picked(window, result.filePaths[0])
 })
 
 ipcMain.handle('antumi:pick-folder', async (event, defaultPath: unknown, title: unknown) => {
   const options: OpenDialogOptions = {
     title: typeof title === 'string' && title ? title : uiText('Choose code repository', '选择代码仓库'),
     properties: ['openDirectory'],
-    defaultPath: typeof defaultPath === 'string' ? defaultPath : undefined
+    // The renderer names a place as core does.
+    defaultPath: (typeof defaultPath === 'string' ? backend.fromBackendPath(defaultPath) : null) ?? backend.dialogStart()
   }
   const window = BrowserWindow.fromWebContents(event.sender)
   const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
-  return result.canceled ? null : (result.filePaths[0] ?? null)
+  return result.canceled ? null : picked(window, result.filePaths[0])
 })
 
 // Bookmarks to bring into the built-in browser: from another browser's profile on this machine, or
 // from a page of them a browser exported. Read here, where the user's files are; core keeps them.
+// A path the renderer named, which is core's, as this machine opens it. `~` is core's home: a
+// backend in WSL has put the distro's there already, one on this machine has this machine's.
+function hereOf(path: string): string | null {
+  const here = backend.fromBackendPath(path)
+  return here !== null && (here === '~' || /^~[\\/]/.test(here)) ? join(homedir(), here.slice(1)) : here
+}
+
 const bookmarkPlaces = (): BookmarkPlaces => ({ platform: process.platform, home: homedir(), env: process.env })
 ipcMain.handle('antumi:browser-homepage', async () => {
   try { return await defaultBrowserHomepage(app.getApplicationNameForProtocol('https://'), bookmarkPlaces()) } catch { return null }
@@ -482,8 +525,8 @@ ipcMain.handle('antumi:reveal-file', async (_event, candidates: unknown) => {
   if (!Array.isArray(candidates)) return null
   for (const candidate of candidates.slice(0, 20)) {
     if (typeof candidate !== 'string') continue
-    const path = candidate === '~' || /^~[\\/]/.test(candidate) ? join(homedir(), candidate.slice(1)) : candidate
-    if (!isAbsolute(path)) continue
+    const path = hereOf(candidate)
+    if (!path || !isAbsolute(path)) continue
     try {
       await stat(path)
     } catch {
@@ -495,8 +538,9 @@ ipcMain.handle('antumi:reveal-file', async (_event, candidates: unknown) => {
   return null
 })
 
-ipcMain.handle('antumi:open-file', async (_event, file: unknown) => {
-  if (typeof file !== 'string' || !isAbsolute(file) || file.includes('\0')) return uiText('Invalid file path', '文件路径无效')
+ipcMain.handle('antumi:open-file', async (_event, named: unknown) => {
+  const file = typeof named === 'string' ? backend.fromBackendPath(named) : null
+  if (!file || !isAbsolute(file) || file.includes('\0')) return uiText('Invalid file path', '文件路径无效')
   try {
     const info = await stat(file)
     if (!info.isFile() && !info.isDirectory()) return uiText('This file cannot be opened', '不支持打开此文件')
@@ -520,8 +564,9 @@ ipcMain.handle('antumi:open-with-apps', async () => Promise.all((await foundApps
 })))
 
 // A file opened in one of those apps, named by its id: the renderer never names what runs.
-ipcMain.handle('antumi:open-with', async (_event, file: unknown, id: unknown) => {
-  if (typeof file !== 'string' || !isAbsolute(file) || file.includes('\0')) return uiText('Invalid file path', '文件路径无效')
+ipcMain.handle('antumi:open-with', async (_event, named: unknown, id: unknown) => {
+  const file = typeof named === 'string' ? backend.fromBackendPath(named) : null
+  if (!file || !isAbsolute(file) || file.includes('\0')) return uiText('Invalid file path', '文件路径无效')
   const chosen = (await foundApps()).find((entry) => entry.id === id)
   if (!chosen) return uiText('App not found', '找不到这个应用')
   try {
@@ -632,9 +677,9 @@ const updater = app.isPackaged || updateApi ? new AppUpdater({
 // The installer then runs silently into the same folder (--updated keeps it an update) and starts
 // the new version when done (--force-run).
 async function installOnWindows(installer: string): Promise<void> {
-  const backend = await stopBackendForInstall()
-  if (!backend.stopped) {
-    if (backend.blockers) throw new InstallBlocked(backend.blockers)
+  const stopped = await backend.stopForInstall()
+  if (!stopped.stopped) {
+    if (stopped.blockers) throw new InstallBlocked(stopped.blockers)
     // Part of it may have gone before the rest would not: bring back what is missing.
     void ensureBackend()
     throw new Error('backend-unresponsive')
@@ -700,32 +745,11 @@ app.on('second-instance', () => {
   }
 })
 
-// A packaged app has no console, so every diagnostic written with console.error — including the
-// reason a remote core would not come up — went nowhere. This writes the same lines to
-// <userData>/logs/main.log and keeps the console behaviour when there is one. A window that says
-// "waiting for core" is otherwise impossible to explain from the outside.
-function teeDiagnostics(): void {
-  if (!app.isPackaged) return
-  const dir = join(app.getPath('userData'), 'logs')
-  try { mkdirSync(dir, { recursive: true }) } catch { return }
-  const file = join(dir, 'main.log')
-  const write = (level: string, args: unknown[]) => {
-    try {
-      const line = args.map((value) => (value instanceof Error ? `${value.message}\n${value.stack ?? ''}` : typeof value === 'string' ? value : JSON.stringify(value))).join(' ')
-      appendFileSync(file, `${new Date().toISOString()} ${level} ${line}\n`)
-    } catch { /* logging must never break the app */ }
-  }
-  for (const level of ['error', 'warn', 'log'] as const) {
-    const original = console[level].bind(console)
-    console[level] = (...args: unknown[]) => { write(level.toUpperCase(), args); original(...args) }
-  }
-}
-
 void app.whenReady().then(async () => {
-  teeDiagnostics()
   if (!primary) return
   protocol.handle(PREVIEW_SCHEME, servePreview)
   protocol.handle(VISUALIZATION_SCHEME, (request) => visualizationPages.serve(request))
+  protocol.handle(PLUGIN_PAGE_SCHEME, (request) => pluginPages.serve(request))
   // Windows names a notification's sender by this id, the installer's shortcut carries the same.
   if (process.platform === 'win32') app.setAppUserModelId('dev.antumi.desktop')
   uiLocale = resolveUiLocale('system', app.getPreferredSystemLanguages())
@@ -735,19 +759,19 @@ void app.whenReady().then(async () => {
   createWindow()
   void removeUpdateLeftovers()
   // After the backend: ensureBackend may move the home, and the host file belongs in the one core reads.
-  // Remote mode: the browser host still runs here (its tabs are this window's), but the file that
-  // announces it would land in *this* machine's home, which the remote core never reads — so the
-  // agent's browser tools would keep waiting for a host that is up. Gated until there is a channel
-  // for it (REMOTE-CORE.md §4.3); leaving it ungated would advertise a host nobody can reach.
-  const remote = readRemoteConfig()
-  void ensureBackend().finally(() => {
-    if (remote.kind === 'on') return
-    return startBrowserHost(slot, antumiPaths().browserHostFile, confirmLeavePage).then(
-      (host) => { browserHost = host },
+  void backend.start().finally(() => {
+    // Remote mode: the host still runs here, but the file that announces it would land in this
+    // machine's home, which the remote core never reads (docs/REMOTE-CORE.md §4.3).
+    if (backend.isRemote()) return
+    return startBrowserHost(slot, backend.browserHostFile(), confirmLeavePage).then(
+      (host) => {
+        browserHost = host
+        backend.browserHostStarted(host.server)
+      },
       (error: unknown) => console.error('[antumi] the browser host did not start', error)
     )
   })
-  setInterval(() => void replaceOldDaemon(), OLD_DAEMON_CHECK_MS).unref()
+  setInterval(() => void backend.replaceOldDaemon(), OLD_DAEMON_CHECK_MS).unref()
   app.on('activate', () => {
     if (!mainWindow) {
       createWindow()
@@ -764,9 +788,7 @@ app.on('before-quit', (event) => {
   session.defaultSession.flushStorageData()
   panelWindows.beginQuit()
   updater?.stop()
-  // Remote mode: the ssh forward is this app's own process and outlives us otherwise, leaving the
-  // next launch to find its port taken. It goes with the app, like the browser host below.
-  stopRemoteLink()
+  backend.stop()
   if (quitting || !browserHost) return
   event.preventDefault()
   quitting = true

@@ -521,6 +521,7 @@ describe('ScheduleService', () => {
     it('moves to another account with quota and goes on at once there, resuming the same session', async () => {
       let active = 'default'
       conversations.setAccounts({
+        exists: () => true,
         activeOf: () => active,
         launch: async () => ({ id: active, env: active === 'default' ? null : { CLAUDE_CONFIG_DIR: `/accounts/${active}` } })
       })
@@ -539,8 +540,41 @@ describe('ScheduleService', () => {
       expect(statusOf(item)?.status).toBe('continued')
     })
 
+    it('keeps a conversation on the account chosen for it: it starts and waits out its limit there, and moves only when switched', async () => {
+      let active = 'default'
+      const homes: Record<string, string> = { work: '/accounts/work', cn: '/accounts/cn' }
+      conversations.setAccounts({
+        exists: (_agent, id) => id === 'default' || id in homes,
+        activeOf: () => active,
+        launch: async (_agent, picked) => { const id = picked ?? active; return { id, env: homes[id] ? { CLAUDE_CONFIG_DIR: homes[id] } : null } }
+      })
+      limits = new UsageLimitResumes(schedules, conversations, { list: () => usage }, (_conversationId, items) => emitted.push(...items), () => clock,
+        (_agent, spent) => (spent === active ? (active = 'work') : active))
+      limitTurns(1, clock + HOUR)
+      await expect(conversations.create('claude', [], undefined, { account: 'gone' })).rejects.toMatchObject({ reason: 'account-unknown' })
+      const created = await conversations.create('claude', [], undefined, { account: 'cn' })
+      expect(created.chatOptions?.account).toBe('cn')
+      await conversations.send(created.id, 'refactor the payments module')
+      await settle()
+      expect(daemon.spawns.at(-1)?.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/accounts/cn' })
+      const session = conversations.stages(created.id).at(-1)?.providerSessionId
+      // Its limit waits for that account's reset: the agent's active account is not moved for it.
+      expect(schedules.list()[0]?.target).not.toHaveProperty('switchedTo')
+      expect(active).toBe('default')
+      await expect(conversations.setAccount(created.id, 'gone')).rejects.toMatchObject({ reason: 'account-unknown' })
+      // Switched while idle: its agent starts again on the new one, resuming the session.
+      const switched = await conversations.setAccount(created.id, 'work')
+      expect(switched.chatOptions?.account).toBe('work')
+      await settle()
+      expect(conversations.stages(created.id).at(-1)).toMatchObject({ account: 'work', providerSessionId: session })
+      expect(daemon.spawns.at(-1)?.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/accounts/work' })
+      expect(daemon.spawns.at(-1)?.args).toEqual(expect.arrayContaining(['--resume', session]))
+      // Cleared, it follows the agent's active account again.
+      expect((await conversations.setAccount(created.id, null)).chatOptions?.account).toBeNull()
+    })
+
     it('waits for the reset as before when no other account has quota', async () => {
-      conversations.setAccounts({ activeOf: () => 'default', launch: async () => ({ id: 'default', env: null }) })
+      conversations.setAccounts({ exists: () => true, activeOf: () => 'default', launch: async () => ({ id: 'default', env: null }) })
       limits = new UsageLimitResumes(schedules, conversations, { list: () => usage }, (_conversationId, items) => emitted.push(...items), () => clock, () => null)
       const resetsAt = clock + HOUR
       await limitedChat(resetsAt)

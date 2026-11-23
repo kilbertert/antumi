@@ -10,7 +10,7 @@ Task-first multi-agent manager. See docs/ARCHITECTURE.md for the architecture di
 - Native modules (node-pty) load only in the daemon, which runs on plain Node. Never import a native module into Electron.
 - core must stay free of Electron imports so it can run headless on a server.
 - **Phones** reach core only through its gateway (`core/src/gateway-main.ts`), a child process core starts when phone access is on: it owns the port phones reach and the Noise link, and is a client of core like the MCP server. What a phone may do is decided in core (`MOBILE_METHODS` in protocol, checked in `rpc-server.ts` before any handler); a new RPC stays off phones until it is added there. See docs/MOBILE.md.
-- **Chat platforms** (Slack, Feishu, DingTalk) reach core only through the channel gateway (`core/src/channel-gateway-main.ts`), a second child core starts while an agent has a channel. It holds the platforms' connections and nothing of core's, no token and no RPC: it hands events in over IPC and posts what it is told. Every rule is in core (`channel-service.ts`), and the agent answering runs locked down, with only the project tools core serves it. See docs/CHANNELS.md.
+- **Chat platforms** (Slack, Feishu or Lark, DingTalk) reach core only through the channel gateway (`core/src/channel-gateway-main.ts`), a second child core starts while an agent has a channel. It holds the platforms' connections and nothing of core's, no token and no RPC: it hands events in over IPC and posts what it is told. Every rule is in core (`channel-service.ts`), and the agent answering runs locked down, with only the project tools core serves it. See docs/CHANNELS.md.
 
 ## Protocol
 

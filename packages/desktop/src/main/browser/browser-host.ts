@@ -1,6 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
-import { app, session, shell, WebContentsView, type DownloadItem, type Event, type WebContents } from 'electron'
+import { app, net, session, shell, WebContentsView, type DownloadItem, type Event, type WebContents } from 'electron'
 import { chromium } from 'playwright-core'
 import { BROWSER_HOST_PROTOCOL_VERSION, writePrivateJson, type BrowserHostResult } from '@antumi/protocol/node'
 import { BROWSER_VIEWPORT, normalizeBrowserUrl, type BrowserNavigateTo, type BrowserStatus, type BrowserViewport } from '@antumi/protocol'
@@ -17,6 +17,7 @@ import { bindBrowserShortcuts } from './browser-shortcuts'
 import { BrowserCapture } from './browser-capture'
 import { BrowserDownloads } from './browser-downloads'
 import { UserInputs } from './user-input'
+import { pluginSessionRequest } from './plugin-session-request'
 
 // One session for every tab: cookies and logins outlive the app, apart from its own UI's.
 const PARTITION = 'persist:antumi-browser'
@@ -42,17 +43,20 @@ export async function startBrowserHost(slot: WindowSlot, hostFile: string, confi
   tabSession.setUserAgent(chromeUserAgent(tabSession.getUserAgent(), process.versions.chrome))
   const views = new Map<string, WebContentsView>()
   const captures = new Map<string, BrowserCapture>()
+  const pluginPartitions = new Map<string, string>()
+  const pluginRequests = new Map<string, Set<AbortController>>()
   let server: HostServer | null = null
   let closing = false
 
   const registry = new TabRegistry(() => server?.emit({ event: 'tabs', tabs: registry.list() }))
   const downloads = new BrowserDownloads(path.join(app.getPath('downloads'), 'Antumi'), (downloads) => server?.emit({ event: 'downloads', downloads }))
+  const tabOf = (webContentsId: number) => registry.all().find((tab) => views.get(tab.id)?.webContents.id === webContentsId) ?? null
   const onDownload = (_event: Event, item: DownloadItem, contents: WebContents) => {
-    const tab = registry.all().find((tab) => views.get(tab.id)?.webContents.id === contents.id)
+    const tab = tabOf(contents.id)
     if (tab) downloads.start(item, tab)
   }
   tabSession.on('will-download', onDownload)
-  const gate = new HostGate(registry, (check) => server?.emit({ event: 'hostCheck', ...check }))
+  const gate = new HostGate(tabOf, (check) => server?.emit({ event: 'hostCheck', ...check }))
   // Tabs an agent's action is at work in: its clicks and keys reach the page as the user's do,
   // and are not to be told to core as the user taking the tab.
   const agentActing = new Set<string>()
@@ -83,18 +87,20 @@ export async function startBrowserHost(slot: WindowSlot, hostFile: string, confi
     const view = views.get(tab.id)
     if (view) slot.release(view)
     views.delete(tab.id)
+    pluginPartitions.delete(tab.id)
     awake.delete(tab.id)
     captures.delete(tab.id)
     slot.tabClosed(tab.id)
     registry.remove(tab.id)
   }
 
-  const open = async (conversationId: string | null, viewport: BrowserViewport | null, userOwned = conversationId === null): Promise<Tab> => {
+  const open = async (conversationId: string | null, viewport: BrowserViewport | null, userOwned = conversationId === null, partition = PARTITION): Promise<Tab> => {
     // Off the panel a tab rests as a hidden page does (see WindowSlot), its frames and timers held
     // back, so a video or an animation left open costs nothing; keepAwake lifts that for the agent.
-    const view = new WebContentsView({ webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false } })
+    const view = new WebContentsView({ webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false } })
     view.setBounds({ x: 0, y: 0, ...BROWSER_VIEWPORT })
     const contents = view.webContents
+    gate.install(contents.session)
     await contents.loadURL('about:blank')
     let proxy = await startTabProxy(contents)
     let browser = await chromium.connectOverCDP(proxy.endpoint).catch((error: unknown) => {
@@ -109,7 +115,6 @@ export async function startBrowserHost(slot: WindowSlot, hostFile: string, confi
       contents.close()
       throw new HostError('browser-unavailable', '标签页没有打开')
     }
-    await gate.install(page.context())
     if (viewport) await applyViewport(contents, viewport)
     let tab: Tab
     const capture = new BrowserCapture(() => tab.page)
@@ -122,7 +127,6 @@ export async function startBrowserHost(slot: WindowSlot, hostFile: string, confi
         browser = await chromium.connectOverCDP(proxy.endpoint)
         const resumed = browser.contexts()[0]?.pages()[0]
         if (!resumed) throw new HostError('browser-unavailable', '无法恢复浏览器连接，请重新打开开发者工具后关闭')
-        await gate.install(resumed.context())
         registry.replacePage(tab, resumed)
       })().finally(() => { restoring = null })
       return restoring
@@ -159,6 +163,7 @@ export async function startBrowserHost(slot: WindowSlot, hostFile: string, confi
     }, viewport, userOwned)
     captures.set(tab.id, capture)
     views.set(tab.id, view)
+    if (partition !== PARTITION) pluginPartitions.set(tab.id, partition)
     slot.rest(view)
     contents.once('destroyed', () => {
       userInputs.forget(tab.id)
@@ -169,7 +174,7 @@ export async function startBrowserHost(slot: WindowSlot, hostFile: string, confi
     contents.setWindowOpenHandler(({ url }) => {
       if (!/^https?:\/\//i.test(url)) return { action: 'deny' }
       const byUser = userInputs.opensForUser(tab.id, agentActing.has(tab.id), Date.now())
-      void open(tab.conversationId, null, tab.userOwned).then((opened) => {
+      void open(tab.conversationId, null, tab.userOwned, partition).then((opened) => {
         if (byUser) server?.emit({ event: 'userInput', tabId: opened.id })
         return goto(opened, { url })
       }).catch(() => {})
@@ -230,6 +235,7 @@ export async function startBrowserHost(slot: WindowSlot, hostFile: string, confi
   const shutdown = async () => {
     if (closing) return
     closing = true
+    for (const requests of pluginRequests.values()) for (const request of requests) request.abort()
     gate.cancelAll()
     tabSession.removeListener('will-download', onDownload)
     downloads.dispose()
@@ -239,6 +245,43 @@ export async function startBrowserHost(slot: WindowSlot, hostFile: string, confi
   }
 
   server = await startHostServer({
+    'plugin.session': async ({ key, site, request }) => {
+      const partition = `persist:antumi-plugin-${key}`
+      const current = session.fromPartition(partition)
+      current.setUserAgent(chromeUserAgent(current.getUserAgent(), process.versions.chrome))
+      if (request.action === 'disconnect') {
+        for (const controller of pluginRequests.get(key) ?? []) controller.abort()
+        await Promise.all(registry.all().filter((tab) => pluginPartitions.get(tab.id) === partition).map((tab) => tab.attachment.close()))
+        await current.clearStorageData()
+        await current.clearCache()
+        return { connected: false }
+      }
+      if (request.action === 'open') {
+        const existing = registry.all().find((tab) => pluginPartitions.get(tab.id) === partition)
+        if (existing) {
+          void keepAwake(existing.id, () => goto(existing, { url: new URL(site.loginPath, site.origin).href })).catch(() => {})
+          return { connected: true, tabId: existing.id }
+        }
+        const tab = await open(null, null, true, partition)
+        void keepAwake(tab.id, () => goto(tab, { url: new URL(site.loginPath, site.origin).href })).catch(() => {})
+        return { connected: true, tabId: tab.id }
+      }
+      const connected = (await current.cookies.get({ url: site.origin })).length > 0
+      if (request.action === 'status') return { connected }
+      if (!connected) throw new HostError('plugin-login-required', '请先在浏览器登录')
+      const controller = new AbortController()
+      const requests = pluginRequests.get(key) ?? new Set<AbortController>()
+      pluginRequests.set(key, requests)
+      requests.add(controller)
+      try {
+        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(request.timeoutMs ?? 12_000)])
+        const response = await pluginSessionRequest(site.origin, request, signal, (options) => net.request({ ...options, session: current, headers: { ...options.headers, 'User-Agent': current.getUserAgent() } }), site.requestOrigins)
+        return { connected: true, response }
+      } finally {
+        requests.delete(controller)
+        if (!requests.size) pluginRequests.delete(key)
+      }
+    },
     status: () => READY,
     'tabs.list': () => ({ tabs: registry.list() }),
     'tabs.open': async ({ conversationId, url, viewport }) => {

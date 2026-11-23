@@ -34,6 +34,8 @@ import { useOccludesBrowser } from '../browser-occlusion'
 import { sendWayKeys, sendWays, type SendWay } from '../chat-send-ways'
 import { sendToNewConversation, useReuseConversationSupported } from './ConversationActions'
 import { useInitialMessages } from '../initial-messages'
+import { keepChatDelivery, useChatDeliveries } from '../chat-deliveries'
+import { sendChatDelivery } from '../chat-delivery-send'
 
 export function sendsMessage(event: KeyboardEvent<HTMLElement>): boolean {
   return !event.repeat && isShortcut('send-message', event.nativeEvent)
@@ -277,8 +279,11 @@ export function ChatComposer({ conversation, state, compact = false }: { convers
   const { value, setText, setValue } = useMentionedText({ text: draft.text, mentions: draft.mentions })
   const { text } = value
   const [busy, setBusy] = useState(false)
+  const submitting = useRef(false)
+  const delivering = useChatDeliveries((messages) => messages[id]?.some((message) => message.phase === 'sending') ?? false)
   const quotes = useQuotes(id)
   const imagesSupported = useChatImagesSupported()
+  const deliveryRefsSupported = useCore((state) => !state.rpc || state.rpc.features.includes('deferred-conversation-start'))
   const optionsSupported = useChatOptionsSupported()
   const schedulesSupported = useSchedulesSupported()
   const scheduleImagesSupported = useScheduleImagesSupported()
@@ -324,7 +329,7 @@ export function ChatComposer({ conversation, state, compact = false }: { convers
     images: imagesSupported, mentions: mentionsSupported, pastes: pastedTextSupported, readOnly: starting
   })
   const initialHint = initialMessage ? initialMessage.phase === 'failed' ? t('ChatComposer.retryTheFirstMessageAboveFirst') : initialMessage.phase === 'sending' ? t('ChatComposer.sendingFirstMessage') : t('ChatComposer.starting', { value1: agentLabel(conversation.agent) }) : null
-  const canTake = (idle || queueable || stopped) && !busy && !starting && !surface.sendBlocker && !conversation.delegation?.writing && attached.uploading === 0 && files.pasting === 0
+  const canTake = (idle || queueable || stopped) && !busy && !delivering && !starting && !surface.sendBlocker && !conversation.delegation?.writing && attached.uploading === 0 && files.pasting === 0
   const canSend = canTake && (text.trim() !== '' || attached.images.length > 0 || quotes.length > 0)
   // What the agent guesses comes next, as Claude Code shows it: grey in the empty input, Tab or →
   // takes it, typing anything else puts it away for good.
@@ -364,29 +369,40 @@ export function ChatComposer({ conversation, state, compact = false }: { convers
     // Quotes go before what the user wrote; a command must open its message, so it goes alone.
     const quoting = quotes.length > 0 && !message.trim().startsWith('/')
     const composed = quoting ? composeMessage(quotes, message) : message.trim()
-    if (!canTake || (composed === '' && attached.images.length === 0) || (steer && !canSteer)) return
+    if (!canTake || submitting.current || (composed === '' && attached.images.length === 0) || (steer && !canSteer)) return
+    submitting.current = true
     setBusy(true)
     const images = attached.images
-    // Getting ready resolves once the agent can take it; if that fails, the text stays to try again.
-    const ready = await surface.prepareSend(stopped)
-    const relay = ready && (!queueable || steer) ? beginRelay(composed, images.map((image) => image.id), mentionMenu.inputProps.input.current?.contentDOM ?? null) : null
-    const sent = ready && await perform((rpc) => rpc.call('conversations.send', {
-      id,
-      text: composed,
-      ...(rpc.features.includes('chat-references') ? { references: messageReferences(writtenMessage, composed) } : {}),
-      ...(images.length ? { images: images.map((image) => image.id) } : {}),
-      ...(queueable ? (steer ? { steer: true } : { queue: true }) : {})
-    }))
-    setBusy(false)
-    if (sent) {
-      relay?.accept()
+    const clear = () => {
       setText('')
       attached.setImages([])
       if (quoting) setQuotes(id, [])
-      // In storage too: getting the agent ready takes a while, and a composer left for another
-      // page by then clears nothing, so the sent message came back as a draft.
       saveComposerDraft(id, EMPTY_DRAFT)
-    } else relay?.cancel()
+    }
+    try {
+      if ((queueable && !steer) || !deliveryRefsSupported) {
+        const ready = await surface.prepareSend(stopped)
+        const sent = ready && await perform((rpc) => rpc.call('conversations.send', {
+          id, text: composed,
+          ...(queueable ? steer ? { steer: true } : { queue: true } : {}),
+          ...(rpc.features.includes('chat-references') ? { references: messageReferences(writtenMessage, composed) } : {}),
+          ...(images.length ? { images: images.map((image) => image.id) } : {})
+        }))
+        if (sent) clear()
+      } else {
+        const ref = crypto.randomUUID()
+        beginRelay(ref, mentionMenu.inputProps.input.current?.contentDOM ?? null)
+        keepChatDelivery(id, {
+          ref, text: composed, images, references: messageReferences(writtenMessage, composed),
+          stageId: state?.stageId ?? 'pending', at: Date.now(), ...(steer ? { steer: true } : {})
+        })
+        clear()
+        await sendChatDelivery(id, ref, surface.prepareSend)
+      }
+    } finally {
+      submitting.current = false
+      setBusy(false)
+    }
   }
   // A pinned command clicked above the composer. One that takes arguments opens the input for them,
   // ahead of whatever is typed there; one that takes none goes as it stands and leaves the input

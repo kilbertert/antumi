@@ -586,6 +586,8 @@ export class ChatHost {
 
   // Logged and applied before it is written, so a crash in between cannot send it twice.
   private dispatch(live: Live, message: ChatOutgoing, ref?: string, images: readonly ChatImage[] = [], references?: ChatReference[]): Promise<unknown> {
+    // A disconnected daemon must not leave a logged message that deduplication treats as sent.
+    this.daemon.assertConnected?.()
     if (ref && !inTurn(live.driver)) this.sink.prompt?.(live, ref)
     this.record(live, { dir: 'out', at: this.now(), frame: message.logged, ...(ref ? { ref } : {}), ...(images.length ? { images: [...images] } : {}), ...(references?.length ? { references } : {}) })
     const turns = adapterOf(live.agent).turns

@@ -1,18 +1,21 @@
-import { mkdir, mkdtemp, rm, lstat } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, lstat, readdir, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { rcompare } from 'semver'
 import { z } from 'zod'
-import { PluginInfo, PluginManifest, PluginVersion, type PluginInstallSource, RecommendedPlugin } from '@antumi/protocol'
+import { MAX_PLUGIN_PAGE_BYTES, MAX_PLUGIN_PAGE_PARAMS, PluginInfo, PluginManifest, type PluginPageFiles, PluginVersion, type PluginInstallSource, RecommendedPlugin } from '@antumi/protocol'
 import { readJsonIfExists, writePrivateJson } from '@antumi/protocol/node'
 import { renameWhenFree } from './patient-rename'
-import { packagePath, readManifest, stagePlugin } from './plugin-package'
+import { githubPluginPackages, packagePath, readManifest, stagePlugin } from './plugin-package'
 import { PluginProcess } from './plugin-process'
+import { sourceRejection } from './source-error'
 import { Rejection } from './rejection'
 import type { SourceProvider } from './source-provider'
 import type { SourceService } from './source-service'
 import type { SourceConfigStore } from './source-config'
 import recommended from './plugins-recommended.json' with { type: 'json' }
+import type { BrowserService } from './browser-service'
+import { pluginBrowserRequest } from './plugin-browser'
 
 const Installed = z.object({ manifest: PluginManifest, enabled: z.boolean(), versions: z.array(PluginVersion), origin: PluginInfo.shape.origin })
 type Installed = z.infer<typeof Installed>
@@ -24,6 +27,9 @@ export class PluginService {
   private registry: Registry = { version: 1, plugins: [], owners: { jira: 'builtin', github: 'antumi.github' } }
   private readonly loaded = new Map<string, Loaded>()
   private readonly problems = new Map<string, string>()
+  private readonly pageCalls = new Map<string, number>()
+  // Saved records this version cannot read (a newer Antumi's, say), written back as they were.
+  private unread: unknown[] = []
   private pending: Promise<unknown> = Promise.resolve()
   private closing = false
   private readonly catalog = recommended.map((entry) => RecommendedPlugin.parse(entry))
@@ -34,16 +40,34 @@ export class PluginService {
     private readonly sources: SourceService,
     private readonly config: SourceConfigStore,
     private readonly builtins: readonly SourceProvider[],
-    private readonly changed: (plugins: PluginInfo[]) => void = () => {}
+    private readonly changed: (plugins: PluginInfo[]) => void = () => {},
+    private readonly browser?: Pick<BrowserService, 'pluginSession'>
   ) {}
+
+  private save(registry: Registry): Promise<void> {
+    return writePrivateJson(this.pointer, { ...registry, plugins: [...registry.plugins, ...this.unread] })
+  }
 
   async load(): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 })
     const raw = await readJsonIfExists(this.pointer)
-    if (raw !== undefined) this.registry = Registry.parse(raw)
+    if (raw !== undefined) {
+      const saved = Registry.extend({ plugins: z.array(z.unknown()) }).parse(raw)
+      const plugins: Installed[] = []
+      for (const record of saved.plugins) {
+        const parsed = Installed.safeParse(record)
+        if (parsed.success) plugins.push(parsed.data)
+        else this.unread.push(record)
+      }
+      if (this.unread.length > 0) console.error(`[plugins] ${this.unread.length} saved plugin record(s) could not be read and are left as they are`)
+      this.registry = { ...saved, plugins }
+    }
     for (const record of this.registry.plugins) {
-      if (!record.enabled) continue
       try {
+        if (!record.enabled) {
+          await readManifest(path.join(this.root, record.manifest.id, record.manifest.version), this.antumiVersion)
+          continue
+        }
         const candidate = await this.prepare(path.join(this.root, record.manifest.id, record.manifest.version))
         if (!isDeepStrictEqual(candidate.process.manifest, record.manifest)) throw new Error('已安装插件的 manifest 发生改变')
         this.loaded.set(record.manifest.id, candidate)
@@ -74,9 +98,83 @@ export class PluginService {
     return { kind: 'github', repository: entry.repository, ...(entry.tagPrefix ? { tagPrefix: entry.tagPrefix } : {}), ...(entry.asset ? { asset: entry.asset } : {}) }
   }
 
+  private page(id: string, page: string) {
+    if (this.closing) throw new Error('插件服务正在关闭')
+    const record = this.record(id)
+    if (!record.enabled) throw new Error('插件已停用')
+    const declaration = record.manifest.contributes.pages.find((entry) => entry.id === page)
+    if (!declaration) throw new Error('插件未声明这个页面')
+    const loaded = this.loaded.get(id)
+    if (!loaded) throw new Error(this.problems.get(id) ?? '插件未加载')
+    return { record, declaration, loaded }
+  }
+
+  async pageFiles(id: string, page: string): Promise<PluginPageFiles> {
+    try {
+      const { record, declaration } = this.page(id, page)
+      const root = path.join(await realpath(this.root), id, record.manifest.version)
+      if (await realpath(root) !== root) throw new Error('插件页面路径越界')
+      const directory = path.dirname(packagePath(root, declaration.entry))
+      const files: PluginPageFiles['files'] = []
+      let bytes = 0
+      const walk = async (folder: string, prefix: string): Promise<void> => {
+        if (!(await realpath(folder)).startsWith(`${root}${path.sep}`)) throw new Error('插件页面路径越界')
+        for (const entry of await readdir(folder, { withFileTypes: true })) {
+          const name = `${prefix}${entry.name}`
+          const file = packagePath(directory, name)
+          const info = await lstat(file)
+          if (info.isDirectory()) await walk(file, `${name}/`)
+          else if (info.isFile()) {
+            if (files.length >= 256) throw new Error('插件页面文件超过 256 个')
+            bytes += info.size
+            if (bytes > MAX_PLUGIN_PAGE_BYTES) throw new Error('插件页面文件超过 8 MiB')
+            if (!(await realpath(file)).startsWith(`${root}${path.sep}`)) throw new Error('插件页面路径越界')
+            const data = await readFile(file)
+            if (data.length !== info.size) throw new Error('插件页面文件发生改变，请重试')
+            files.push({ path: name, base64: data.toString('base64') })
+          } else throw new Error('插件页面不允许符号链接或特殊文件')
+        }
+      }
+      await walk(directory, '')
+      return { version: record.manifest.version, entry: path.basename(declaration.entry), files }
+    } catch (error) {
+      // The plugin's folder went while it was read: removed or replaced mid-call.
+      if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) throw sourceRejection(new Error('插件页面文件不可用，请重试'))
+      throw sourceRejection(error)
+    }
+  }
+
+  async pageCall(id: string, page: string, method: string, params: unknown, showTab?: (tabId: string) => void): Promise<{ result: unknown }> {
+    let counted = false
+    try {
+      const { loaded, record } = this.page(id, page)
+      const json = JSON.stringify(params)
+      if (json === undefined || Buffer.byteLength(json) > MAX_PLUGIN_PAGE_PARAMS) throw new Error('插件页面参数必须是 JSON，且不超过 3 MiB')
+      const calls = this.pageCalls.get(id) ?? 0
+      if (calls >= 4) throw new Error('插件页面同时调用不能超过 4 个，请稍后重试')
+      this.pageCalls.set(id, calls + 1)
+      counted = true
+      const browser = this.browser
+      return await loaded.process.call('page', { page, method, params }, undefined, undefined, browser ? async (request, signal) => {
+        signal.throwIfAborted()
+        const resolved = pluginBrowserRequest(record.manifest, request, this.root)
+        const result = await browser.pluginSession(resolved)
+        if (!signal.aborted && result.tabId && request.action === 'open') showTab?.(result.tabId)
+        return result
+      } : undefined)
+    } catch (error) { throw sourceRejection(error) }
+    finally {
+      if (counted) {
+        const remaining = (this.pageCalls.get(id) ?? 1) - 1
+        if (remaining) this.pageCalls.set(id, remaining)
+        else this.pageCalls.delete(id)
+      }
+    }
+  }
+
   list(): PluginInfo[] {
     return this.registry.plugins.map((record) => ({
-      id: record.manifest.id, version: record.manifest.version, sources: record.manifest.contributes.sources,
+      id: record.manifest.id, version: record.manifest.version, sources: record.manifest.contributes.sources, pages: record.manifest.contributes.pages,
       enabled: record.enabled, versions: [...record.versions].sort(rcompare), origin: record.origin,
       problem: this.problems.get(record.manifest.id) ?? null
     }))
@@ -84,6 +182,10 @@ export class PluginService {
 
   install(source: PluginInstallSource): Promise<PluginInfo> {
     return this.serialize(() => this.installInner(source))
+  }
+
+  githubPackages(repository: string): Promise<{ tag: string, packages: string[] }> {
+    return this.serialize(() => githubPluginPackages(repository))
   }
 
   update(id: string): Promise<PluginInfo> {
@@ -131,7 +233,7 @@ export class PluginService {
       await this.sources.pause(ids)
       try {
         const next = { ...this.registry, plugins: this.registry.plugins.filter((plugin) => plugin.manifest.id !== id) }
-        await writePrivateJson(this.pointer, next)
+        await this.save(next)
         this.registry = next
         this.loaded.get(id)?.process.stop()
         this.loaded.delete(id)
@@ -175,7 +277,7 @@ export class PluginService {
         if (expectedId && current.manifest.version === manifest.version) {
           if (!isDeepStrictEqual(current.origin, origin)) {
             const next = { ...this.registry, plugins: this.registry.plugins.map((record) => record.manifest.id === manifest.id ? { ...record, origin } : record) }
-            await writePrivateJson(this.pointer, next)
+            await this.save(next)
             this.registry = next
             this.publish([])
           }
@@ -253,7 +355,7 @@ export class PluginService {
           : [...this.registry.plugins, record],
         owners: { ...this.registry.owners, ...Object.fromEntries(ids.map((source) => [source, id])) }
       }
-      await writePrivateJson(this.pointer, next)
+      await this.save(next)
       this.registry = next
       this.loaded.get(id)?.process.stop()
       if (candidate) this.loaded.set(id, candidate)

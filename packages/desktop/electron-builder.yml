@@ -33,11 +33,17 @@ mac:
     - target: dmg
       arch:
         - arm64
+        - x64
 win:
   # The same artwork without macOS's grid margin and shadow: Windows draws icons edge to edge, and
   # the 824px plate on a 1024px canvas showed a fifth smaller than its neighbours on the taskbar.
   # electron-builder makes the .ico from it.
   icon: build/icon-win.png
+  # The backend as a WSL distro runs it (docs/WSL.md), packed on Linux by pack-wsl-backend. A build
+  # made without it simply offers no WSL.
+  extraResources:
+    - from: build/wsl
+      to: wsl
   target:
     - target: nsis
       arch:

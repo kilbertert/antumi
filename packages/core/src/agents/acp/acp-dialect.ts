@@ -43,12 +43,21 @@ export interface AcpDialect {
   createTodos?(): AcpTodos
   // Some agents carry questions and plan reviews over the standard permission request.
   permissionPrompt?(request: unknown): { kind: 'question'; text: string } | { kind: 'plan'; text: string; runMode: ChatPermissionMode } | { kind: 'plan'; path: string; runMode: ChatPermissionMode } | null
+  // Approving such a plan review puts the agent back in the mode it planned from, unannounced:
+  // the approval switches it to the plan's run mode as well, so the chat shows the mode it runs in.
+  readonly planApprovalSetsMode?: boolean
   // The Task call a subagent announced on its parent's session runs for; without it, subagents
   // are left out of the chat.
   subagentCall?(update: unknown): string | null
+  // The Task call an update belongs to, for an agent that runs its subagents inside the parent's
+  // own session and marks their words and calls; null for the parent's own.
+  subagentOf?(update: unknown): string | null
   // Requests of its own: a question asked in passing, a plan to approve (accepted, it runs on in
   // the mode named), and requests Antumi just acknowledges.
   readonly requests?: { question?: string; plan?: { method: string; approvalTool?: string; runMode: ChatPermissionMode; runModeLabel: string; prompt: string }; acknowledged?: readonly string[] }
+  // The longest line its ACP reads: a longer one is dropped unanswered and stalls the process, so a
+  // prompt that long (its images, mostly) is refused before it goes.
+  readonly maxLineBytes?: number
   // A transport error the agent wrote as the end of its reply: the reply without it, and what to say.
   providerError?(text: string): { rest: string; summary: string; detail: string } | null
 }

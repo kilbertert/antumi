@@ -3,6 +3,9 @@ import { dirname } from 'node:path'
 import { PLUGIN_PROTOCOL_VERSION, PluginMessage, pluginSchemas, type PluginManifest, type PluginMethod, type PluginParams, type PluginResult } from '@antumi/protocol'
 import { SourceError } from './source-error'
 import type { LoginSession, SourceCredential, SourceProvider } from './source-provider'
+import { PluginBrowserResult, type PluginBrowserRequest } from '@antumi/protocol'
+
+export type PluginBrowserCall = (request: PluginBrowserRequest, signal: AbortSignal) => Promise<PluginBrowserResult>
 
 const MAX_OUTPUT = 8 * 1024 * 1024
 const RESERVED_ENV = /^(?:NODE_|ELECTRON_|ANTUMI_HOME$|LD_|DYLD_)/
@@ -60,18 +63,18 @@ export class PluginProcess {
     for (const controller of this.controllers) controller.abort()
   }
 
-  call<M extends PluginMethod>(method: M, params: PluginParams<M>, signal?: AbortSignal, session?: LoginSession, onProgress?: (read: number, total: number | null) => void): Promise<PluginResult<M>> {
+  call<M extends PluginMethod>(method: M, params: PluginParams<M>, signal?: AbortSignal, session?: LoginSession, browser?: PluginBrowserCall, onProgress?: (read: number, total: number | null) => void): Promise<PluginResult<M>> {
     if (this.stopped) return Promise.reject(new SourceError('request-failed', '插件已停止'))
     const controller = new AbortController()
     this.controllers.add(controller)
-    const abort = AbortSignal.any([controller.signal, ...(signal ? [signal] : []), AbortSignal.timeout(method === 'login' ? 15 * 60_000 : 120_000)])
+    const abort = AbortSignal.any([controller.signal, ...(signal ? [signal] : []), AbortSignal.timeout(method === 'login' ? 15 * 60_000 : method === 'page' ? 60_000 : 120_000)])
     // A download may take minutes on a slow site; its own budget, not the standard 120s.
-    const result = this.invoke(method, params, method === 'attachment' ? AbortSignal.any([abort, AbortSignal.timeout(15 * 60_000)]) : abort, session, onProgress)
+    const result = this.invoke(method, params, method === 'attachment' ? AbortSignal.any([abort, AbortSignal.timeout(15 * 60_000)]) : abort, session, browser, onProgress)
     void result.finally(() => this.controllers.delete(controller)).catch(() => {})
     return result
   }
 
-  private invoke<M extends PluginMethod>(method: M, params: PluginParams<M>, signal: AbortSignal, session?: LoginSession, onProgress?: (read: number, total: number | null) => void): Promise<PluginResult<M>> {
+  private invoke<M extends PluginMethod>(method: M, params: PluginParams<M>, signal: AbortSignal, session?: LoginSession, browser?: PluginBrowserCall, onProgress?: (read: number, total: number | null) => void): Promise<PluginResult<M>> {
     return new Promise((resolve, reject) => {
       if (signal.aborted) { reject(new SourceError('request-failed', '插件调用已取消')); return }
       const child = spawn(process.execPath, [this.main], {
@@ -85,6 +88,8 @@ export class PluginProcess {
       let handshaken = false
       let answering = false
       const promptIds = new Set<string>()
+      const browserIds = new Set<string>()
+      let browsing = false
       let outcome: { value: PluginResult<M> } | { error: Error } | undefined
       let force: ReturnType<typeof setTimeout> | undefined
       const kill = (hard: boolean) => {
@@ -143,6 +148,19 @@ export class PluginProcess {
           at = end + 1
           try {
             const message = PluginMessage.parse(JSON.parse(line))
+            if (message.type === 'browser') {
+              if (!handshaken || method !== 'page' || !browser || browsing || browserIds.has(message.id) || browserIds.size >= 16) throw new Error('invalid browser callback')
+              browserIds.add(message.id)
+              browsing = true
+              void browser(message.request, signal).then((result) => {
+                browsing = false
+                send({ type: 'browserResult', id: message.id, result: PluginBrowserResult.parse(result) })
+              }, (error: unknown) => {
+                browsing = false
+                send({ type: 'browserResult', id: message.id, error: error instanceof Error ? error.message.slice(0, 2000) : '浏览器请求失败，请检查登录状态或重新打开 Antumi' })
+              }).catch(() => fail('无效的浏览器响应'))
+              continue
+            }
             if (message.type === 'progress') {
               // Only a download produces these; anything else reporting progress is a plugin bug.
               if (method !== 'attachment') throw new Error('progress outside attachment')
@@ -161,7 +179,7 @@ export class PluginProcess {
               }, () => fail('插件登录已取消'))
               continue
             }
-            if (message.id !== (handshaken ? 'call' : 'hello') || answering) throw new Error('unexpected response')
+            if (message.id !== (handshaken ? 'call' : 'hello') || answering || browsing) throw new Error('unexpected response')
             if (message.type === 'error') {
               finish({ error: new SourceError(message.error.code, message.error.message) })
               break
@@ -169,7 +187,8 @@ export class PluginProcess {
             if (!handshaken) {
               const hello = pluginSchemas.handshake.result.parse(message.result)
               const expected = this.manifest.contributes.sources.map((source) => source.id).sort()
-              if (hello.id !== this.manifest.id || hello.version !== this.manifest.version || JSON.stringify([...hello.sources].sort()) !== JSON.stringify(expected)) throw new Error('manifest mismatch')
+              const pages = this.manifest.contributes.pages.map((page) => page.id).sort()
+              if (hello.id !== this.manifest.id || hello.version !== this.manifest.version || JSON.stringify([...hello.sources].sort()) !== JSON.stringify(expected) || JSON.stringify([...hello.pages].sort()) !== JSON.stringify(pages)) throw new Error('manifest mismatch')
               clearTimeout(handshakeTimer)
               if (method === 'handshake') finish({ value: pluginSchemas[method].result.parse(message.result) })
               else {
@@ -188,7 +207,7 @@ export class PluginProcess {
         else if ('error' in outcome) reject(outcome.error)
         else resolve(outcome.value)
       })
-      send({ type: 'call', id: 'hello', method: 'handshake', params: { protocolVersion: PLUGIN_PROTOCOL_VERSION } })
+      send({ type: 'call', id: 'hello', method: 'handshake', params: { protocolVersion: PLUGIN_PROTOCOL_VERSION, ...(browser ? { features: ['browser-sessions', 'browser-binary'] } : {}) } })
     })
   }
 
@@ -210,7 +229,7 @@ export class PluginProcess {
           return { name: image.name, bytes: Buffer.from(image.base64, 'base64') }
         },
         attachment: async (settings, credential, key, id, signal, progress) => {
-          const file = await this.call('attachment', { source: source.id, settings, credential, key, id }, signal, undefined, progress)
+          const file = await this.call('attachment', { source: source.id, settings, credential, key, id }, signal, undefined, undefined, progress)
           return { name: file.name, bytes: Buffer.from(file.base64, 'base64') }
         },
         envCredential: () => credential,

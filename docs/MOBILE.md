@@ -23,7 +23,7 @@
 |---|---|
 | 会话列表（等你、在跑、最近）、读聊天记录、加载更早的消息 | 终端、文件编辑、Git |
 | 回答请求（全部选项）、回答问答卡 | 内置浏览器 |
-| 发文字和图片、打断本轮、继续已停的会话 | 设置、账号、服务商、MCP、插件、来源凭据 |
+| 发文字和图片、打断本轮、继续已停的会话；把聊天里的图片存到相册 | 设置、账号、服务商、MCP、插件、来源凭据 |
 | 改权限模式、模型和推理强度 | 删除会话、添加任意项目路径 |
 | 在最近项目里新建会话（可选 worktree、权限模式、模型和推理强度） | 结束 Agent 进程、停后台工具 |
 | 任务看板：在最近项目里新建任务、开始、接受或标记完成、取消 | 不经局域网、Tailscale 或中转服务器的远程连接；内置地址、对所有人开放的公共中转 |
@@ -220,6 +220,7 @@ Noise 的一条传输消息最多 65535 字节，而一个附件块是 512 KiB�
 - 额度：连上后读一次 `usage.list`（四种窗口都要），之后跟 `usage.changed` 更新；电脑没给手机这个权限时就不显示。会话列表在「已连接」下给每个 Agent 一个标签（最紧的窗口，判断用 protocol 的 `quotaVerdict`），点开是各窗口的明细；电脑列表下面是当前电脑的明细卡片；新会话页在选中的 Agent（按所选模型）用满时提示何时重置。没登录、还没读到的 Agent 不显示。文字在 `src/quota-text.ts`。
 - 聊天页照电脑上的样子显示消息流：工具调用用电脑上的名字（命令、编辑、MCP 服务 · 工具、Antumi 自己的工具），连续的几次调用合成一行（「读取 3 个文件，运行 2 个命令」），改了文件的调用显示 +/− 和 diff，子 Agent 显示类型、用量、指令和结果，命令显示非零退出码和后台状态；用户消息里的引用显示成卡片，移交和切换分支的附注去掉；上下文压缩显示成分隔线，可重试的通知带重试按钮，额度用完说明何时恢复，每个回合结束显示用时和 tokens。这些判断和电脑共用 protocol 里的 `tool-calls.ts`、`chat-quotes.ts`、`delegation-delivery.ts`，文字在手机端自己的 `tool-labels.ts`、`chat-text.ts`。
 - 最近打开的 5 个会话（各最近 100 条）缓存在 App 沙盒，离线时可以翻看；取消配对或被撤销时清掉。
+- 聊天里的图片（含 `show_preview` 的预览图）点开看大图时，右上角可以存到手机相册（`src/photo-saving.ts`，经 expo-media-library 写进 MediaStore 的 Pictures）。Android 10 及以上不用权限；更早的系统和 iOS 第一次保存时请求只写权限。不申请读相册的权限：prebuild 会自动套用它的配置插件，加上 `READ_MEDIA_*`，这几项和库自带的 `READ_MEDIA_VISUAL_USER_SELECTED` 都在 app.json 的 `blockedPermissions` 里屏蔽。
 - 聊天页没发出的文字和已上传的图片按会话留在内存里，离开再回来还在；App 被系统结束、换一台电脑、取消配对时清掉。图片在电脑上已经存好，草稿只记它的 ID。
 - 外观是手机自己的一套，不跟 `DESIGN.md`：令牌（颜色、圆角、间距、字号，分浅色和深色）都在 `src/theme.ts`，基础组件（`Screen`、`ListGroup`、`ListRow`、`Button`、`IconButton`、`AgentAvatar`）在 `src/components/ui.tsx`，新页面从这里取。做法参照 t3code、orca 等项目的手机端：大标题、圆角分组列表、右侧气泡的用户消息、工具调用压成一行、等确认的请求固定在输入框上方。
 - 图标用 `lucide-react-native`，Agent 的标志从桌面端的图标转成 `src/components/agent-mark.tsx`；Markdown 用 `marked` 分词后画成原生文字（`src/components/markdown.tsx`），不用 WebView。

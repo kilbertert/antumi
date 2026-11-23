@@ -133,7 +133,7 @@ export function createRpcHandlers(
     if (!mobile) throw new Rejection('mobile-unavailable')
     return mobile
   }
-  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (!['requirements', 'requirement-prototypes'].includes(feature) || Boolean(requirements)) && (feature !== 'requirement-evidence' || Boolean(requirements?.evidenceSupported)) && (feature !== 'requirement-knowledge-evidence' || Boolean(requirements?.knowledgeEvidenceSupported)) && (feature !== 'requirement-project-iterations' || Boolean(requirements?.projectIterationsSupported)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
+  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (!['requirements', 'requirement-prototypes'].includes(feature) || Boolean(requirements)) && (feature !== 'requirement-evidence' || Boolean(requirements?.evidenceSupported)) && (feature !== 'requirement-knowledge-evidence' || Boolean(requirements?.knowledgeEvidenceSupported)) && (feature !== 'requirement-project-iterations' || Boolean(requirements?.projectIterationsSupported)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations', 'plugin-packages', 'plugin-pages'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
   const channelService = (): ChannelService => {
     if (!channels) throw new Rejection('channels-unavailable')
     return channels
@@ -311,10 +311,13 @@ export function createRpcHandlers(
     'plugins.installRecommended': ({ id }) => pluginService().installRecommended(id),
     'plugins.list': () => pluginService().list(),
     'plugins.install': ({ source }) => pluginService().install(source),
+    'plugins.githubPackages': ({ repository }) => pluginService().githubPackages(repository),
     'plugins.update': ({ id }) => pluginService().update(id),
     'plugins.setEnabled': ({ id, enabled }) => pluginService().setEnabled(id, enabled),
     'plugins.rollback': ({ id, version }) => pluginService().rollback(id, version),
     'plugins.uninstall': async ({ id }) => { await pluginService().uninstall(id); return OK },
+    'plugins.pageFiles': ({ id, page }) => pluginService().pageFiles(id, page),
+    'plugins.pageCall': ({ id, page, method, params }, connection) => pluginService().pageCall(id, page, method, params, (tabId) => connection.notify('browser.showTab', { tabId })),
     'agentProfiles.list': () => profileService().list(),
     'agentProfiles.save': ({ id, ...fields }) => profileService().save(fields, id),
     'agentProfiles.archive': ({ id, archived }) => profileService().archive(id, archived),
@@ -448,7 +451,8 @@ export function createRpcHandlers(
     'modelProviders.probe': ({ id }) => modelProviderStore().probe(id),
     'modelProviders.fetchModels': (query) => modelProviderStore().fetchModels(query),
     'accounts.list': () => accountStore().list(),
-    'accounts.add': ({ agent, label }) => accountStore().add(agent, label),
+    'accounts.add': ({ agent, label, key }) => accountStore().add(agent, label, key),
+    'accounts.setKey': ({ agent, id, key }) => accountStore().setKey(agent, id, key),
     'accounts.login': ({ agent, id }) => accountStore().login(agent, id),
     'accounts.rename': ({ agent, id, label }) => accountStore().rename(agent, id, label),
     'accounts.remove': async ({ agent, id }) => { await accountStore().remove(agent, id); return OK },
@@ -543,14 +547,14 @@ export function createRpcHandlers(
     'conversations.get': ({ id }) => conversations.get(id),
     'conversations.configuration': ({ id }) => conversations.configuration(id),
     'conversations.helper': ({ id }) => conversations.helper(id),
-    'conversations.create': ({ agent, projectPaths, worktree, branch, allowBypass, permissionMode, model, effort, deferStart, helperOf, modelProvider, profileId, knowledgeBase }, connection) => {
+    'conversations.create': ({ agent, projectPaths, worktree, branch, allowBypass, permissionMode, model, effort, deferStart, helperOf, modelProvider, profileId, account, knowledgeBase }, connection) => {
       if (connection.mobile && (helperOf || profileId)) throw new Rejection('mobile-project-not-recent', 'pick a recent project')
       requireRecentForPhone(connection, projectPaths)
       const profile = profileId ? profileService().get(profileId) : undefined
       if (profile && (profile.agent !== agent || helperOf)) throw new Rejection('invalid-params', '智能体配置与会话不匹配')
       return conversations.create(agent, projectPaths, allowBypass, { permissionMode: profile?.capability === 'readOnly' ? agentDescriptor(agent).readOnlyMode : permissionMode,
         model: model ?? profile?.model ?? undefined, effort: effort ?? profile?.effort ?? undefined, worktree, branch, deferStart, helperOf,
-        modelProvider: profile?.modelProvider ?? modelProvider, profile, knowledgeBase })
+        modelProvider: profile?.modelProvider ?? modelProvider, profile, ...(account ? { account } : {}), knowledgeBase })
     },
     'conversations.chatCatalog': ({ agent, modelProvider }) => conversations.chatCatalog(agent, modelProvider),
     'conversations.chatCatalogProblem': ({ agent }) => conversations.chatCatalogProblem(agent),
@@ -572,6 +576,7 @@ export function createRpcHandlers(
     'conversations.handoff': ({ id, agent, note, stopRunning, allowBypass, permissionMode, model, effort, references }) => { sources.automatic?.takeover(id); return conversations.handoff(id, agent, note, stopRunning, allowBypass, { permissionMode, model, effort, references }) },
     'conversations.fork': ({ id, stageId, itemId }) => conversations.fork(id, stageId, itemId),
     // A mode the user picks is theirs to answer for: a run nobody watched stops answering for them.
+    'conversations.setAccount': ({ id, account }) => { notChannel(id); profiles?.guardUser(id, true); squads?.guardUser(id, true); return conversations.setAccount(id, account) },
     'conversations.setOption': async ({ id, option, value }) => { notChannel(id); profiles?.guardUser(id, true); squads?.guardUser(id, true); if (option === 'permissionMode') conversations.attend(id); await conversations.setOption(id, option, value); sources.automatic?.takeover(id); return OK },
     'conversations.send': ({ id, text, images, queue, steer, ref, references }) => { notChannel(id); return userActed(id, async () => { profiles?.guardUser(id, true); squads?.guardUser(id, true); await conversations.send(id, text, images, queue, steer, ref, references); return OK }) },
     'conversations.cancelQueued': ({ id, ref }) => { notChannel(id); conversations.cancelQueued(id, ref); return OK },

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { PanelShortcutAction } from '../../shared/panel-shortcuts'
-import { ShortcutAction, SHORTCUTS } from '../../shared/keyboard-shortcuts'
+import { ShortcutAction, SHORTCUTS, type ShortcutInput } from '../../shared/keyboard-shortcuts'
 import { closePanelWindow, focusPanelWindow, forwardPanelShortcut, onBrowserShortcut, sendPanelCommand, syncPanelShortcuts } from './desktop-bridge'
 import type { PanelKind } from '../../shared/panel-window'
 import { focusSplitPane, openSearch, setNewTaskOpen, toggleSplit, toggleBrowserPanel, toggleFilesPanel, toggleGitPanel, toggleTerminalPanel, setSettingsOpen, useCore } from './core-store'
@@ -68,11 +68,24 @@ export function runForwardedShortcut(action: ShortcutAction, addressFocused: boo
   runAppShortcut(action, addressFocused)
 }
 
+// A dialog or menu on screen takes the keys: no app shortcut runs under it.
+function overlayOpen(): boolean {
+  return typeof document !== 'undefined' && [...document.querySelectorAll('dialog[open], [role="dialog"], [role="menu"]')].some((element) => element.getClientRects().length > 0)
+}
+
+// A chord pressed where the window cannot hear it, inside a plugin page's frame: the app shortcut it
+// matches runs as if pressed here. False when it matches none.
+export function runShortcutChord(input: ShortcutInput): boolean {
+  if (recordingShortcut() || overlayOpen()) return false
+  const action = ShortcutAction.options.find((candidate) => SHORTCUTS[candidate].scope === 'app' && isShortcut(candidate, input))
+  return action ? runAppShortcut(action) : false
+}
+
 export function usePanelWindowShortcuts(kind: PanelKind): void {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (recordingShortcut()) return
-      if ([...document.querySelectorAll('dialog[open], [role="dialog"], [role="menu"]')].some((element) => element.getClientRects().length > 0)) return
+      if (overlayOpen()) return
       const action = ShortcutAction.options.find((candidate) => SHORTCUTS[candidate].scope === 'app' && isShortcut(candidate, event))
       if (!action || event.repeat) return
       const terminal = event.target instanceof Element && event.target.closest('.xterm') !== null
@@ -96,7 +109,7 @@ export function usePanelShortcuts(): void {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (recordingShortcut()) return
-      if ([...document.querySelectorAll('dialog[open], [role="dialog"], [role="menu"]')].some((element) => element.getClientRects().length > 0)) return
+      if (overlayOpen()) return
       const action = ShortcutAction.options.find((candidate) => SHORTCUTS[candidate].scope === 'app' && isShortcut(candidate, event))
       if (!action) return
       const terminal = event.target instanceof Element && event.target.closest('.xterm') !== null

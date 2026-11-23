@@ -55,6 +55,9 @@ describe('installerFor', () => {
   it('picks the dmg for this Mac, the setup for Windows and the package Linux runs from', () => {
     expect(installerFor(release('v1.0.0'), 'darwin', 'arm64')?.name).toBe('Antumi-1.0.0-macos-arm64.dmg')
     expect(installerFor(release('v1.0.0'), 'darwin', 'x64')).toBeNull()
+    const both = release('v1.0.0', { assets: [...release('v1.0.0').assets, { name: 'Antumi-1.0.0-macos-x64.dmg', browser_download_url: 'https://example.com/x64.dmg', size: 4, digest: null }] })
+    expect(installerFor(both, 'darwin', 'x64')?.name).toBe('Antumi-1.0.0-macos-x64.dmg')
+    expect(installerFor(both, 'darwin', 'arm64')?.name).toBe('Antumi-1.0.0-macos-arm64.dmg')
     expect(installerFor(release('v1.0.0'), 'win32', 'x64')?.name).toBe('Antumi-1.0.0-windows-x64.exe')
     expect(installerFor(release('v1.0.0'), 'linux', 'x64')?.name).toBe('Antumi-1.0.0-linux-x86_64.AppImage')
     expect(installerFor(release('v1.0.0'), 'linux', 'x64', 'deb')?.name).toBe('Antumi-1.0.0-linux-amd64.deb')

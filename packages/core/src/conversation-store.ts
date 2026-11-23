@@ -22,9 +22,9 @@ const STAGE_SELECT = `SELECT id, conversation_id AS conversationId, agent, provi
 const MESSAGE_SELECT = `SELECT sequence, conversation_id AS conversationId, stage_id AS stageId,
   role, agent, text, event_key AS eventKey, complete, created_at AS createdAt FROM conversation_messages`
 
-// A model and effort name one agent's catalog, so each agent keeps its own; the permission mode
-// and the bypass allowance are the conversation's.
-const AgentChoice = z.object({ model: z.string().optional(), effort: z.string().optional() })
+// A model and effort name one agent's catalog, and an account one agent's accounts, so each agent
+// keeps its own; the permission mode and the bypass allowance are the conversation's.
+const AgentChoice = z.object({ model: z.string().optional(), effort: z.string().optional(), account: z.string().optional() })
 const ChatOptions = z.object({
   permissionMode: z.string().optional(),
   allowBypass: z.boolean().optional(),

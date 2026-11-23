@@ -1,8 +1,8 @@
 # 聊天平台接入
 
-> Slack、飞书和钉钉都已实现。飞书用真实的应用联调过，Slack 和钉钉还没有。实现状态见文末。
+> Slack、飞书（含 Lark）和钉钉都已实现。飞书用真实的应用联调过，Lark、Slack 和钉钉还没有。实现状态见文末。
 
-给智能体接上聊天平台：同事在 Slack、飞书或钉钉里 @ 它，它读指定的项目来答疑、查问题；接入开启「允许创建任务」后，也能按工作指令把明确需求收进任务。它不改代码，也碰不到这台电脑上别的东西。
+给智能体接上聊天平台：同事在 Slack、飞书、Lark 或钉钉里 @ 它，它读指定的项目来答疑、查问题；接入开启「允许创建任务」后，也能按工作指令把明确需求收进任务。它不改代码，也碰不到这台电脑上别的东西。
 
 不引入新的实体。智能体提供「是谁」（名称、工作指令、模型）；接入（代码里叫 channel）提供「在哪、谁能问、能看什么」。
 
@@ -122,6 +122,7 @@ ChannelGatewayToCore =
 - 飞书只收 `im.message.receive_v1`：私聊（`chat_type = p2p`）是 `direct`；群里 `mentions` 有机器人的才是 `mention`，别的连接器自己 ACK。`place` 是 `chat_id`，`messageId` 和去重键都是 `message_id`；在话题里（有 `thread_id`）`thread` 是 `root_id`，引用回复不算话题。文字里的 `@_user_1` 换成对方的名字，@ 机器人本身去掉；富文本里的链接、代码块照写，图片收进 `images`，视频等算其他文件。
 - 飞书的回复是富文本消息里的一个 `md` 节点：有 `thread` 就 `reply` 到那条消息并 `reply_in_thread`，否则发到 `chat_id`。`uuid` 用 outbox 行的 id，重发不会出两条。限速（HTTP 429、`230020`、`99991400`）按 `x-ogw-ratelimit-reset` 等；token 过期（`99991663` 等）换一个再试一次。👀 在飞书叫 `OnIt`。
 - 飞书凭据错了（换 token 失败）、没开机器人能力、缺权限、长连接被拒（连接数超限等）都报 `failed` 不再重试；网络问题和 endpoint 忙按 1s 到 30s 退避。图片从 `im/v1/messages/{message_id}/resources/{image_key}?type=image` 取，只取事件里出现过的；事件不带图片类型，下载后由附件存储按内容判断。
+- **Lark**（飞书国际版）是单独的平台 `lark`，用的就是飞书的连接器和格式，只是开放平台换成 `https://open.larksuite.com`（`larkConnector`）。两边的应用和凭据不通用，所以不能做成飞书接入上的一个选项：用户选错了只会看到凭据不对。
 - **钉钉也是直接说的**，照官方 Node SDK（`dingtalk-stream` 的 `DWClient`）的做法：`POST /v1.0/gateway/connections/open` 带 Client ID / Secret，只订阅机器人消息（`CALLBACK` `/v1.0/im/bot/messages/get`），拿到 `endpoint` 和 `ticket` 连 WebSocket。帧是 JSON：`SYSTEM` 的 `ping` 原样回，`disconnect` 就换一条连接；`CALLBACK` 是机器人消息，ACK 是回一条带它 `messageId` 的 `{code:200}`，同样等 core 回 `accepted` 才发（钉钉一分钟没收到会重推）。建连接被拒（4xx）报 `failed` 不再重试。
 - 钉钉的消息：`conversationType` 1 是 `direct`，2 且 `isInAtList` 的是 `mention`；没有 `senderStaffId` 的（外部联系人）连接器自己 ACK。`place` 是 `conversationId`，`messageId` 和去重键是 `msgId`，`thread` 永远是 null：机器人不能在话题里回答。`tenant` 是 `senderCorpId`；单聊不带时用机器人所在组织（企业内部机器人只和自己组织的人单聊），群里不带的是外部群，记成 `external`，于是对不上。机器人所在组织（`chatbotCorpId`）从第一条消息得知，连接器在交出这条消息之前先报一次 `state` 回填 `tenant`；钉钉不给组织名，界面只写「已连接」。
 - 钉钉的回答优先走消息里带的 `sessionWebhook`（主机必须是 `oapi.dingtalk.com` / `api.dingtalk.com`，离过期不到 10 秒就不用），Markdown 消息，群里第一段末尾 @ 提问人（`at.atUserIds`），后面几段不再 @。webhook 过期、不认或回了错，就用 `oauth2/accessToken` 换的 token 走机器人消息接口：群 `robot/groupMessages/send`，单聊 `robot/oToMessages/batchSend`，模板 `sampleMarkdown`；这两个接口不能 @ 人，也没有幂等键。webhook 回 `130101`（一分钟超过 20 条）等 3 秒再发。机器人不能给消息加表情，平台描述里 `reactions` 是 false，core 不发 👀。图片用消息里的 `downloadCode` 调 `robot/messageFiles/download` 换一个签名的下载地址再取，给 core 的 `ref` 是下载码的哈希（下载码有几百个字符）。
@@ -211,7 +212,7 @@ claude -p --verbose --output-format stream-json --input-format stream-json --inc
 
 **环境变量**：daemon 多了一个方法 `spawnPipeClean`，只带 `CLEAN_ENV_KEYS`（`PATH`、`HOME`、语言、临时目录、Windows 启动进程要的几个、代理和 CA）和 core 显式给的变量。是单独的方法而不是 `spawnPipe` 的参数：旧 daemon 会忽略不认识的参数、把整个环境传下去，单独的方法它只会报不认识，core 就不启动这类会话。
 
-旧 daemon 只在它什么都不跑时才被 App 换掉（`replaceOldDaemon`），所以升级后一直开着 Agent 的电脑，每个提问都会以 `daemon-outdated` 失败。daemon 的 `info.features` 里有 `clean-pipe` 才算支持；`channels.readiness` 据此回答，桌面端在「聊天平台」区块里提前提示，并给出这个 daemon 的 PID，好让用户退出 App 后结束它。失败的提问在 `channel_requests.error_reason` 里记下拒绝的原因代码（`ChannelRequest.errorReason`），提问记录按它显示本地化的说明，没有代码的才显示原始诊断。
+旧 daemon 只在它什么都不跑时才被 App 换掉（`replaceOldDaemon`），所以升级后一直开着 Agent 的电脑，若 daemon 还不认识 `spawnPipeClean`，每个提问都会以 `daemon-outdated` 失败。core 先看 `info.features` 的 `clean-pipe`；早期 daemon 已实现方法但未声明标记时，用 `params: null` 探测该方法：不认识会报 `unknown-method`，认识则在参数校验处拒绝，不会启动进程。`channels.readiness` 只在确认不支持时回答 `outdated`，桌面端在「聊天平台」区块里提前提示，并给出这个 daemon 的 PID，好让用户退出 App 后结束它。失败的提问在 `channel_requests.error_reason` 里记下拒绝的原因代码（`ChannelRequest.errorReason`），提问记录按它显示本地化的说明，没有代码的才显示原始诊断。
 
 **Codex 的锁死运行**（`codex-lockdown.ts`、`codex-app-server.ts`）：
 
@@ -419,7 +420,8 @@ claude -p --verbose --output-format stream-json --input-format stream-json --inc
 | 桌面端「聊天平台」区块 | 在一次性的测试实例里用界面添加、保存、看到失败状态 |
 | 从 Slack 提问到回答 | 只对本地的假 Slack 验证过。**真实的 Slack 工作区没有联调过**：需要建一个应用、拿到两个 token |
 | 从钉钉提问到回答 | 只对本地的假钉钉验证过，帧格式照官方 Node SDK（`dingtalk-stream` 2.1.6-beta.1）写的。**真实的钉钉应用没有联调过** |
+| 从 Lark 提问到回答 | 只对本地的假飞书验证过，接口和帧与飞书相同，只换了域名。**真实的 Lark 应用没有联调过** |
 | 从飞书提问到回答 | 用真实的飞书应用联调通过（2026-11-15）：应用建在飞书个人账号自己的组织里，从桌面端填凭据、连上长连接，到在飞书里提问收到回答。帧格式照官方 Node SDK 1.76.0 写的 |
 | 打包后的应用 | `channel-gateway.mjs` 能打出来，没有在安装包里跑过 |
 
-没做的：Lark（飞书国际版，域名不同）；主人接手会话；串里只有一个人时免 @；进度更新；固定查询工具；除 Claude Code、Codex、Pi 外的 Agent。
+没做的：主人接手会话；串里只有一个人时免 @；进度更新；固定查询工具；除 Claude Code、Codex、Pi 外的 Agent。

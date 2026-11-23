@@ -11,6 +11,7 @@ import { pop, push } from '../navigation'
 import { canOperate, computerOf, refresh, respond, useSession } from '../session'
 import { mono, radius, space, type, useTheme } from '../theme'
 
+// Recent conversations shown at a time; scrolling to the bottom shows as many more.
 const RECENT = 50
 
 // A conversation waiting on the user, as a card: what it asks, and for a plain approval the
@@ -60,6 +61,7 @@ export function ConversationsScreen() {
   const status = useSession((s) => s.status)
   const access = useSession((s) => s.welcome?.access)
   const online = status === 'online'
+  const [recentShown, setRecentShown] = useState(RECENT)
   const groups = useMemo(() => {
     // A delegated member is reached from its caller's chat, but listed while it waits on the user.
     const shown = Object.values(conversations).filter((conversation) => !isHelper(conversation) && conversation.archivedAt == null
@@ -67,9 +69,10 @@ export function ConversationsScreen() {
       .sort((a, b) => b.updatedAt - a.updatedAt)
     const waiting = shown.filter((conversation) => conversationWaiting(conversation) || conversationAsking(conversation))
     const running = shown.filter((conversation) => conversationWorking(conversation) && !waiting.includes(conversation))
-    const recent = shown.filter((conversation) => !waiting.includes(conversation) && !running.includes(conversation)).slice(0, RECENT)
+    const recent = shown.filter((conversation) => !waiting.includes(conversation) && !running.includes(conversation))
     return { waiting, running, recent }
   }, [conversations])
+  const more = groups.recent.length > recentShown
   const open = (conversation: Conversation) => push({ name: 'chat', id: conversation.id })
   const pill = online ? <StatusPill label={t('online')} tone="success" /> : status === 'connecting' ? <StatusPill label={t('connecting')} tone="running" /> : <StatusPill label={t('offline')} tone="neutral" />
   return (
@@ -79,6 +82,7 @@ export function ConversationsScreen() {
       subtitle={<View style={styles.pill}>{pill}<QuotaStrip /></View>}
       onBack={() => pop()}
       onRefresh={online ? refresh : undefined}
+      onEndReached={more ? () => setRecentShown((count) => count + RECENT) : undefined}
       actions={<>
         <IconButton icon={ListTodo} label={t('tasks')} onPress={() => push({ name: 'tasks' })} />
         <IconButton icon={Settings} label={t('settings')} onPress={() => push({ name: 'settings' })} />
@@ -102,7 +106,7 @@ export function ConversationsScreen() {
       ) : null}
       {groups.recent.length > 0 ? (
         <ListGroup title={t('recent')}>
-          {groups.recent.map((conversation) => (
+          {groups.recent.slice(0, recentShown).map((conversation) => (
             <ListRow key={conversation.id} leading={<AgentAvatar agent={conversation.agent} status={conversationCrashed(conversation) ? 'failed' : null} />} title={conversation.title || t('untitled')}
               subtitle={where(conversation)} chevron={false} onPress={() => open(conversation)}
               trailing={<Text style={[type.caption, { color: theme.text3 }]}>{ago(conversation.updatedAt)}</Text>} />

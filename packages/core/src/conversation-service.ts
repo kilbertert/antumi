@@ -328,9 +328,9 @@ export class ConversationService {
 
   // The user's model providers, for a conversation started on one; without them none can be.
   private providers: ModelProviderStore | null = null
-  private accounts: Pick<AgentAccountStore, 'launch' | 'activeOf'> | null = null
+  private accounts: Pick<AgentAccountStore, 'launch' | 'activeOf' | 'exists'> | null = null
   setModelProviders(providers: ModelProviderStore): void { this.providers = providers }
-  setAccounts(accounts: Pick<AgentAccountStore, 'launch' | 'activeOf'>): void { this.accounts = accounts }
+  setAccounts(accounts: Pick<AgentAccountStore, 'launch' | 'activeOf' | 'exists'>): void { this.accounts = accounts }
 
   // What the agent's next stage here runs on (see decideRoute).
   private routeFor(conversation: Pick<Conversation, 'id' | 'modelProvider'>, agent: AgentKind): RouteDecision {
@@ -593,7 +593,7 @@ export class ConversationService {
     agent: AgentKind,
     projectPaths: readonly string[],
     allowBypass?: boolean,
-    start: { permissionMode?: string; model?: string; effort?: string; worktree?: boolean; branch?: string; deferStart?: boolean; helperOf?: string; modelProvider?: string; profile?: AgentProfile; parentId?: string; callId?: string; readOnly?: boolean; referencePaths?: readonly string[]; unlisted?: boolean; investigation?: { source: TaskSource; title: string; automaticId?: string } ; channel?: ConversationChannel; title?: string; knowledgeBase?: boolean } = {},
+    start: { permissionMode?: string; model?: string; effort?: string; worktree?: boolean; branch?: string; deferStart?: boolean; helperOf?: string; modelProvider?: string; profile?: AgentProfile; parentId?: string; callId?: string; readOnly?: boolean; referencePaths?: readonly string[]; unlisted?: boolean; investigation?: { source: TaskSource; title: string; automaticId?: string } ; channel?: ConversationChannel; title?: string; account?: string; knowledgeBase?: boolean } = {},
     routine: { id: string; title: string } | null = null,
     id: string = randomUUID(),
     discussion: { id: string; title: string } | null = null,
@@ -616,7 +616,9 @@ export class ConversationService {
       if (this.retiring.has(parent.id) || !canHaveHelper(currentParent) || this.store.helper(parent.id)) throw new Rejection('invalid-params', '不能创建小助手或已有小助手')
       this.store.create(agent, currentParent.workspacePath, currentParent.projectPaths, id, this.store.projectStarts(parent.id), null, null, null, parent.id)
       this.store.setModelProvider(id, modelProvider)
-      this.store.setChatOptions(id, { permissionMode, allowBypass: allowBypass ?? false, [agent]: { model: start.model, effort: start.effort } })
+      // On the account its parent keeps, where it is the same agent's.
+      const account = this.store.chatOptions(parent.id)[agent]?.account
+      this.store.setChatOptions(id, { permissionMode, allowBypass: allowBypass ?? false, [agent]: { model: start.model, effort: start.effort, ...(account ? { account } : {}) } })
       this.changed(this.get(id))
       return start.deferStart ? this.get(id) : this.start(id, agent, '', false)
     }
@@ -629,6 +631,7 @@ export class ConversationService {
     if (!start.deferStart && !this.capacityAvailable(agent)) throw new Rejection('agent-capacity')
     if (start.modelProvider) this.requireProvider(start.modelProvider, agent)
     await this.validateStartOptions(agent, { permissionMode, model, effort }, start.modelProvider)
+    if (start.account) this.requireAccount(agent, start.account, start.modelProvider ?? null)
     const resolved = await resolveProjects(projectPaths)
     const { picked } = resolved
     const primary = resolved.projects[0]
@@ -673,7 +676,7 @@ export class ConversationService {
     if (squad?.referencePaths?.length) this.store.setReferencePaths(id, squad.referencePaths)
     if (allowBypass !== undefined) this.store.setChatOptions(id, { allowBypass })
     if (permissionMode) this.store.setChatOptions(id, { permissionMode })
-    if (model || effort) this.store.setChatOptions(id, { [agent]: { model, effort } })
+    if (model || effort || start.account) this.store.setChatOptions(id, { [agent]: { model, effort, ...(start.account ? { account: start.account } : {}) } })
     // The paths as picked, not resolved: the same strings a task stores for them. Not a worktree
     // Antumi laid out for a delegated member (start.unlisted): no one picks that again.
     if (!start.unlisted) this.projects.remember(picked)
@@ -944,6 +947,8 @@ export class ConversationService {
     const current = this.get(id)
     const stage = this.store.latestStage(id, current.agent)
     if (!this.accounts || !stage?.account || stage.route || stage.account === this.accounts.activeOf(current.agent)) return
+    // One the user chose its account for stays on it.
+    if (this.keptAccount(id, current.agent)) return
     if (!current.sessionId || this.launching.has(id) || !this.chats.idle(id)) return
     await this.stop(id)
   }
@@ -1252,7 +1257,7 @@ export class ConversationService {
       await writeFile(handoffPath, buildHandoff(current, messages, note, current.agent, agent), { mode: 0o600 })
     }
     if (launch.brief) handoffPath = launch.brief
-    const account = route ? null : await this.accounts?.launch(agent) ?? null
+    const account = route ? null : await this.accounts?.launch(agent, this.keptAccount(current.id, agent)) ?? null
     const stageId = randomUUID()
     const stage = this.store.startStage(id, agent, providerSessionId, this.store.maxSequence(id), stageId, launch.planOnly ?? false, route, account?.id ?? null)
     if (saved) await this.importHooks?.before(id, agent, saved)
@@ -1281,7 +1286,7 @@ export class ConversationService {
       handoffPath = path.join(directory, `${randomUUID()}.md`)
       await writeFile(handoffPath, buildHandoff(current, messages, '', agent, agent), { mode: 0o600 })
     }
-    const account = route ? null : await this.accounts?.launch(agent) ?? null
+    const account = route ? null : await this.accounts?.launch(agent, this.keptAccount(current.id, agent)) ?? null
     const stage = this.store.startStage(current.id, agent, providerSessionId, this.store.maxSequence(current.id), randomUUID(), false, route, account?.id ?? null)
     const provider = decision.kind === 'provider' ? providerLaunch(decision.route, decision.apiKey) : undefined
     return this.startChat(current, stage, native, handoffPath === null ? null : { path: handoffPath, note: '' }, [], whole ? WHOLE_SESSION_FORK : native ? fork.at : null, provider, account)
@@ -1565,6 +1570,40 @@ export class ConversationService {
       this.store.setChatOptions(id, { [agent]: { ...current, effort: value } })
     }
     this.changed(conversation)
+  }
+
+  // The account the conversation chose for its agent, while that agent still has it; undefined
+  // follows the agent's active account.
+  private keptAccount(id: string, agent: AgentKind): string | undefined {
+    const account = this.store.chatOptions(id)[agent]?.account
+    return account && this.accounts?.exists(agent, account) ? account : undefined
+  }
+
+  private requireAccount(agent: AgentKind, account: string, modelProvider: string | null): void {
+    if (modelProvider) throw new Rejection('account-on-provider', '使用模型服务商的会话不用 Agent 账号')
+    if (!this.accounts?.exists(agent, account)) throw new Rejection('account-unknown', '没有这个账号')
+  }
+
+  // An idle agent on another account is restarted on this one, resuming its session there; a task's
+  // is only stopped, for the task to go on. One at work is left to finish first.
+  async setAccount(id: string, account: string | null): Promise<Conversation> {
+    const conversation = this.get(id)
+    if (conversation.squadRunId || conversation.parentConversationId) throw new Rejection('squad-managed', '本次运行沿用团队配置')
+    const { agent } = conversation
+    if (account !== null) this.requireAccount(agent, account, conversation.modelProvider ?? null)
+    if ((this.store.chatOptions(id)[agent]?.account ?? null) === account) return conversation
+    const activity = this.chats.activity(id)
+    if (activity !== null && activity !== 'idle') throw new Rejection('chat-busy', '请在回合结束后切换账号')
+    const { account: _previous, ...rest } = this.store.chatOptions(id)[agent] ?? {}
+    this.store.setChatOptions(id, { [agent]: account === null ? rest : { ...rest, account } })
+    const stage = this.store.latestStage(id, agent)
+    const runsOn = (account ?? this.accounts?.activeOf(agent)) ?? null
+    if (activity !== null && stage && !stage.route && (stage.account ?? null) !== runsOn) {
+      await this.stop(id)
+      return conversation.taskId ? this.get(id) : this.continue(id)
+    }
+    this.changed(this.get(id))
+    return this.get(id)
   }
 
   invalidateCli(agent: AgentKind): void { this.catalogs.delete(agent); this.freshCatalogs.add(agent) }
@@ -2394,7 +2433,8 @@ export class ConversationService {
     const chatOptions = {
       permissionMode: chosen.permissionMode ?? null,
       model: chosen[conversation.agent]?.model ?? null,
-      effort: chosen[conversation.agent]?.effort ?? null
+      effort: chosen[conversation.agent]?.effort ?? null,
+      account: chosen[conversation.agent]?.account ?? null
     }
     // A suggestion is for the idle composer; one the settings turned off since is not shown.
     const suggestion = turn === 'idle' && this.promptSuggestions ? this.chats.suggestion(conversation.id) : null

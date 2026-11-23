@@ -55,6 +55,7 @@ export function fakeBrowserHost() {
   }
 
   const handlers: { [M in BrowserHostMethod]: (params: BrowserHostParams<M>) => Promise<BrowserHostResult<M>> | BrowserHostResult<M> } = {
+    'plugin.session': () => ({ connected: false }),
     status: () => ({ state: 'ready', running: true }),
     'tabs.list': () => ({ tabs: [...tabs.values()] }),
     'tabs.open': async ({ conversationId, url, viewport }) => {

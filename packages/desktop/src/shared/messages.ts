@@ -1,5 +1,9 @@
 // Application-owned text. Values and external content are passed separately.
 export const MESSAGES = {
+  "ChatDelivery.sending": { zh: "发送中…", en: "Sending…" },
+  "ChatDelivery.failed": { zh: "发送失败：{reason}", en: "Send failed: {reason}" },
+  "ChatDelivery.notSent": { zh: "消息未发送，请重试", en: "Message not sent. Try again." },
+  "ChatDelivery.requiresNewerCore": { zh: "当前后台版本不支持安全重试，请更新后台", en: "Update the backend to retry this message safely." },
   "McpSettingsSection.targetChanged": {"zh": "连接目标已改变，请重新填写要用于新目标的凭据。", "en": "The connection target changed. Re-enter credentials for the new target."},
   "Requirements.connections": {"zh": "外部连接与凭据", "en": "External connections and credentials"},
   "Requirements.connectionsHint": {"zh": "复用当前 Core 的禅道、模型服务商和 MCP 配置。进入设置会保留需求草稿；凭据状态不代表连通性测试已通过。", "en": "Uses this Core's source, model provider and MCP settings. Opening settings keeps your requirement draft. Configuration status is not a connection test."},
@@ -200,6 +204,11 @@ export const MESSAGES = {
   "ChatVisualization.runtimeError": {"zh": "预览运行时出错，可以重新加载。", "en": "The preview encountered an error. Try reloading."},
   "ChatVisualization.upgrade": {"zh": "当前 core 不支持交互预览，请更新后重试。", "en": "This core does not support interactive previews. Update it and try again."},
   "ChatVisualization.sendPrompt": {"zh": "将预览中的这条消息发送给 Agent？", "en": "Send this message from the preview to the Agent?"},
+  "PluginPage.loading": {"zh": "正在打开页面…", "en": "Opening the page…"},
+  "PluginPage.failed": {"zh": "页面打不开：{message}", "en": "The page could not open: {message}"},
+  "PluginPage.unavailable": {"zh": "当前桌面端无法显示插件页面，请更新 Antumi。", "en": "This app cannot show plugin pages. Update Antumi."},
+  "PluginPage.retry": {"zh": "重试", "en": "Retry"},
+  "PluginPage.heldInBackground": {"zh": "页面在后台时暂停了这次请求，请重试", "en": "This request was paused while the page was in the background; try again"},
   "ProjectColor.label": {"zh": "项目颜色", "en": "Project color"},
   "ProjectColor.default": {"zh": "默认颜色", "en": "Default color"},
   "ProjectColor.blue": {"zh": "蓝色", "en": "Blue"},
@@ -451,6 +460,9 @@ export const MESSAGES = {
   "SettingsPage.accountsDisconnected": {"zh": "连接后查看账号", "en": "Connect to view accounts"},
   "SettingsPage.accountCount": {"zh": "{count} 个账号", "en": "Accounts: {count}"},
   "SettingsPage.accountEmptyHint": {"zh": "添加一个账号并登录，随后可在这里切换。", "en": "Add and sign in to an account, then switch accounts here."},
+  "SettingsPage.noAccountAgents": {"zh": "尚未安装支持账号管理的外部智能体", "en": "No installed agents support account management"},
+  "SettingsPage.noAccountAgentsHint": {"zh": "安装支持账号管理的外部智能体后，即可在这里登录和切换账号。", "en": "Install an agent that supports account management to sign in and switch accounts here."},
+  "SettingsPage.viewAgents": {"zh": "查看外部智能体", "en": "View external agents"},
   "SettingsPage.accountSwitchingHelp": {"zh": "账号切换如何影响会话？", "en": "How does switching affect conversations?"},
   "SettingsPage.backToProviders": {"zh": "返回服务商", "en": "Back to providers"},
   "SettingsPage.providerAdvanced": {"zh": "模型、适用 Agent 与连接地址", "en": "Models, agents and endpoints"},
@@ -776,8 +788,8 @@ export const MESSAGES = {
   "SupportSettings.name": {"zh": "关于名字", "en": "The name"},
   "SupportSettings.nameDescription": {"zh": "Antumi（安图米）是受 ant（蚂蚁）启发的自造词。单只蚂蚁很小，合力却能完成大活。Antumi 把不同的 AI 编程 Agent 集中到同一个工作台，让任务分头推进，进度和成果都看得清楚。图标上那只小蚂蚁就是它：触角之间连着一串光点，像几个 Agent 接在一起干活。", "en": "Antumi is a coined word inspired by \"ant\". One ant is small; together they move things far bigger than themselves. Antumi brings different AI coding agents onto one workbench so work moves forward in parallel while progress and results stay visible. The little ant on the app icon is it: a string of lights between its antennae, like agents linked up to work together."},
   "SupportSettings.community": {"zh": "交流", "en": "Community"},
-  "SupportSettings.communityDescription": {"zh": "交流入口将在开放后显示在这里。", "en": "Community links will appear here when available."},
-  "SupportSettings.comingSoon": {"zh": "即将开放", "en": "Coming soon"},
+  "SupportSettings.communityDescription": {"zh": "微信扫码加作者好友，备注 Antumi，拉你进交流群。", "en": "Scan with WeChat to add the author, mention Antumi, and you'll be invited to the community group."},
+  "SupportSettings.wechatQr": {"zh": "作者微信二维码", "en": "The author's WeChat QR code"},
   "ProjectStar.title": {"zh": "给个star鼓励下吧", "en": "Give us a star!"},
   "ProjectStar.thanks": {"zh": "感谢您的支持！", "en": "Thanks for your support!"},
   "ProjectStar.checking": {"zh": "正在检查 Star 状态…", "en": "Checking star status…"},
@@ -6842,8 +6854,28 @@ export const MESSAGES = {
     "en": "Plugin path"
   },
   "PluginSettings.githubRepository": {
-    "zh": "GitHub 仓库",
-    "en": "GitHub repository"
+    "zh": "GitHub 项目地址",
+    "en": "GitHub project"
+  },
+  "PluginSettings.notAGitHubProject": {
+    "zh": "请填写 GitHub 项目地址，例如 https://github.com/owner/repository",
+    "en": "Enter a GitHub project address, for example https://github.com/owner/repository"
+  },
+  "PluginSettings.findingPackages": {
+    "zh": "正在查找插件包…",
+    "en": "Looking for plugin packages…"
+  },
+  "PluginSettings.packageFound": {
+    "zh": "将安装 {name}（{tag}）",
+    "en": "Will install {name} ({tag})"
+  },
+  "PluginSettings.choosePackage": {
+    "zh": "插件包",
+    "en": "Plugin package"
+  },
+  "PluginSettings.chooseOnePackage": {
+    "zh": "选择要安装的包",
+    "en": "Choose a package"
   },
   "PluginSettings.fullPathToPluginDirectoryOrZip": {
     "zh": "插件目录或 ZIP 的完整路径",
@@ -6856,22 +6888,6 @@ export const MESSAGES = {
   "PluginSettings.chooseZip": {
     "zh": "选择 ZIP",
     "en": "Choose ZIP"
-  },
-  "PluginSettings.releaseTagOptional": {
-    "zh": "Release 标签（可选）",
-    "en": "Release tag (optional)"
-  },
-  "PluginSettings.leaveEmptyForTheLatestStableRelease": {
-    "zh": "留空使用最新正式版",
-    "en": "Leave empty for the latest stable release"
-  },
-  "PluginSettings.zipAssetNameOptional": {
-    "zh": "ZIP 附件名称（可选）",
-    "en": "ZIP asset name (optional)"
-  },
-  "PluginSettings.specifyIfTheReleaseHasMultipleZipFiles": {
-    "zh": "有多个 ZIP 时填写",
-    "en": "Specify if the release has multiple ZIP files"
   },
   "PluginSettings.pluginsRunLocalCodeAndReceiveCredentialsFor": {
     "zh": "插件会运行本机代码，并接收对应来源的登录凭据。请只安装你信任的插件。",
@@ -7307,8 +7323,8 @@ export const MESSAGES = {
     "en": "Every {value1} {value1, plural, one {hour} other {hours}}, starting at midnight"
   },
   "RoutineEditor.runsOnlyWhenYouClickRunNow": {
-    "zh": "只在你点「立即运行」时运行。",
-    "en": "Runs only when you click “Run now”."
+    "zh": "只在你点「立即运行一次」时运行，不会自动执行。",
+    "en": "Runs only when you click “Run once now”, never automatically."
   },
   "RoutineEditor.chooseAWeekday": {
     "zh": "选一个星期几。",
@@ -7379,9 +7395,16 @@ export const MESSAGES = {
     "en": "Enable"
   },
   "RoutinesSection.runImmediatelyIgnoringTimeAndQuota": {
-    "zh": "立即运行，不等时间和额度",
-    "en": "Run immediately, ignoring time and quota"
+    "zh": "立即运行一次，不等计划时间和额度；不改变自动运行设置",
+    "en": "Run once now, ignoring time and quota; automatic run settings stay the same"
   },
+  "RoutinesSection.manualOnly": { "zh": "仅手动", "en": "Manual only" },
+  "RoutinesSection.noAutomaticRuns": { "zh": "不会自动运行", "en": "Does not run automatically" },
+  "RoutinesSection.automaticRuns": { "zh": "自动运行", "en": "Automatic runs" },
+  "RoutinesSection.automaticFor": { "zh": "自动运行：{title}", "en": "Automatic runs: {title}" },
+  "RoutinesSection.runOnce": { "zh": "立即运行一次", "en": "Run once now" },
+  "RoutinesSection.runOnceFor": { "zh": "立即运行一次：{title}", "en": "Run once now: {title}" },
+  "RoutinesSection.lastFailure": { "zh": "上次失败：{reason}", "en": "Last run failed: {reason}" },
   "RoutinesSection.templates": {
     "zh": "模板",
     "en": "Templates"
@@ -12690,8 +12713,8 @@ export const MESSAGES = {
   "RouteBadge.removedProvider": { "zh": "已删除的服务商", "en": "Removed provider" },
   "ChatHandoff.keepsProvider": { "zh": "沿用服务商「{value1}」", "en": "Keeps {value1}" },
   "AgentAccounts.title": { "zh": "账号", "en": "Accounts" },
-  "AgentAccounts.description": { "zh": "登录多个 Claude、Codex 账号，在状态栏切换，额度用完时自动换下一个。", "en": "Sign in to several Claude and Codex accounts, switch in the status bar, and move on to the next when one runs out." },
-  "AgentAccounts.intro": { "zh": "每个账号在自己的配置目录里运行，会话历史、设置、技能和 MCP 服务器与本机账号共享，所以换号后会话原样接着跑。正在运行的会话保持原账号，之后启动的用当前账号。", "en": "Each account runs in a config folder of its own that shares conversation history, settings, skills and MCP servers with your own, so a conversation carries on as it was after a switch. Running conversations keep their account; whatever starts next uses the active one." },
+  "AgentAccounts.description": { "zh": "登录多个 Claude、Codex 账号，或添加 CodeBuddy 的 API Key；在状态栏切换，也可以给每个会话单独选账号。", "en": "Sign in to several Claude and Codex accounts, or add CodeBuddy API keys; switch in the status bar, or pick one for each conversation." },
+  "AgentAccounts.intro": { "zh": "每个账号在自己的配置目录里运行，会话历史、设置、技能和 MCP 服务器与本机账号共享，所以换号后会话原样接着跑。正在运行的会话保持原账号，之后启动的用当前账号；在会话输入框下方选定了账号的会话，一直用它，也不参与额度用完时的自动切换。", "en": "Each account runs in a config folder of its own that shares conversation history, settings, skills and MCP servers with your own, so a conversation carries on as it was after a switch. Running conversations keep their account; whatever starts next uses the active one. A conversation given an account below its composer keeps it, and is not moved when one runs out." },
   "AgentAccounts.own": { "zh": "本机账号", "en": "Default account" },
   "AgentAccounts.unnamed": { "zh": "账号 {value1}", "en": "Account {value1}" },
   "AgentAccounts.active": { "zh": "当前", "en": "Active" },
@@ -12712,6 +12735,16 @@ export const MESSAGES = {
   "AgentAccounts.spent": { "zh": "已用完", "en": "Spent" },
   "AgentAccounts.switchedTo": { "zh": "已换到账号「{value1}」继续", "en": "Moved to {value1} and went on" },
   "AgentAccounts.switchingTo": { "zh": "额度用完，正在换到账号「{value1}」继续", "en": "Usage limit reached; going on with {value1}" },
+  "AgentAccounts.apiKey": { "zh": "API Key", "en": "API key" },
+  "AgentAccounts.edition": { "zh": "版本", "en": "Edition" },
+  "AgentAccounts.addKey": { "zh": "添加", "en": "Add" },
+  "AgentAccounts.changeKey": { "zh": "更换 API Key", "en": "Change API key" },
+  "AgentAccounts.keyAccount": { "zh": "API Key · {value1}", "en": "API key · {value1}" },
+  "AccountPicker.label": { "zh": "账号", "en": "Account" },
+  "AccountPicker.followActive": { "zh": "当前账号", "en": "Active account" },
+  "AccountPicker.followActiveDescription": { "zh": "跟随状态栏的当前账号（{value1}）", "en": "Follows the status bar’s active account ({value1})" },
+  "AccountPicker.afterTurn": { "zh": "本轮结束后再切换账号", "en": "Switch accounts after this turn" },
+  "AccountPicker.restarts": { "zh": "切换后会用新账号重新接上这个会话", "en": "Switching resumes this conversation on the new account" },
   "AgentAccounts.onAccount": { "zh": "在账号「{value1}」上运行", "en": "Runs on {value1}" },
   "ChatHandoff.ownAccountInstead": { "zh": "用自己的账号：「{value1}」不服务它", "en": "Its own account: {value1} does not serve it" },
   "GitPage.amend": {"zh": "修改上一次提交（Amend）", "en": "Amend last commit"},
@@ -13318,6 +13351,9 @@ export const MESSAGES = {
   "AgentChannels.feishu.create": {"zh": "打开飞书开发者后台，创建「企业自建应用」，在「添加应用能力」里加上「机器人」。到「权限管理」点「批量导入/导出权限」，粘贴下面的清单，再到「版本管理与发布」发布一个版本。", "en": "Open the Feishu developer console, create a custom app and add the Bot feature. Under Permissions & Scopes, choose Batch import/export scopes, paste the scopes below, then publish a version under Version Management & Release."},
   "AgentChannels.feishu.tokens": {"zh": "App ID 和 App Secret 在「凭证与基础信息」里。保存接入、状态变成「已连接」后，回到「事件与回调」，订阅方式选「使用长连接接收事件」，添加事件「接收消息」，再发布一个版本。", "en": "The App ID and App Secret are under Credentials & Basic Info. Once the channel is saved and shows Connected, go to Events & Callbacks, choose to receive events through a persistent connection, add the Message received event, and publish another version."},
   "AgentChannels.feishu.ids": {"zh": "成员 ID（ou_ 开头）和群 ID（oc_ 开头）在飞书里看不到：让对方先 @ 机器人或私聊它问一句，没开通的人会收到一条带着这两个 ID 的回复。机器人要先拉进群。", "en": "Feishu shows member IDs (ou_…) and group IDs (oc_…) nowhere: have the person mention the bot or message it once, and anyone not yet allowed gets a reply with both IDs. Add the bot to the group first."},
+  "AgentChannels.lark.create": {"zh": "打开 Lark 开发者后台，创建「企业自建应用」（Custom App），在「添加应用能力」里加上「机器人」。到「权限管理」点「批量导入/导出权限」，粘贴下面的清单，再到「版本管理与发布」发布一个版本。", "en": "Open the Lark developer console, create a custom app and add the Bot feature. Under Permissions & Scopes, choose Batch import/export scopes, paste the scopes below, then publish a version under Version Management & Release."},
+  "AgentChannels.lark.tokens": {"zh": "App ID 和 App Secret 在「凭证与基础信息」里。保存接入、状态变成「已连接」后，回到「事件与回调」，订阅方式选「使用长连接接收事件」，添加事件「接收消息」，再发布一个版本。", "en": "The App ID and App Secret are under Credentials & Basic Info. Once the channel is saved and shows Connected, go to Events & Callbacks, choose to receive events through a persistent connection, add the Message received event, and publish another version."},
+  "AgentChannels.lark.ids": {"zh": "成员 ID（ou_ 开头）和群 ID（oc_ 开头）在 Lark 里看不到：让对方先 @ 机器人或私聊它问一句，没开通的人会收到一条带着这两个 ID 的回复。机器人要先拉进群。", "en": "Lark shows member IDs (ou_…) and group IDs (oc_…) nowhere: have the person mention the bot or message it once, and anyone not yet allowed gets a reply with both IDs. Add the bot to the group first."},
   "AgentChannels.dingtalk.create": {"zh": "打开钉钉开发者后台，在「应用开发 → 企业内部应用」里创建应用，在「添加应用能力」里加上「机器人」，消息接收模式选「Stream 模式」并发布机器人。到「权限管理」申请「企业内机器人发送消息权限」，再到「版本管理与发布」发布一个版本。", "en": "Open the DingTalk developer console, create an internal app, add the Robot feature with Stream mode as its message receiving mode, and publish the robot. Under Permissions, apply for the permission to send messages as an internal robot, then publish a version."},
   "AgentChannels.dingtalk.tokens": {"zh": "Client ID 和 Client Secret 在应用的「凭证与基础信息」里。", "en": "The Client ID and Client Secret are under the app's credentials and basic information."},
   "AgentChannels.dingtalk.ids": {"zh": "成员 ID 是通讯录里的 userId，管理后台的成员详情里能看到；群 ID（cid 开头）在钉钉里看不到：先把机器人添加进群，让对方 @ 它问一句，没开通的人会收到一条带着这两个 ID 的回复。钉钉的机器人不能在话题里回答，群里每次 @ 都是新的提问。", "en": "Member IDs are the userIds of the address book, shown in a member's details in the admin console. DingTalk shows group IDs (starting cid) nowhere: add the robot to the group and have the person mention it once, and anyone not yet allowed gets a reply with both IDs. A DingTalk robot cannot answer in a thread, so each mention in a group is a new question."},
@@ -13396,7 +13432,7 @@ export const MESSAGES = {
   "AgentProfiles.audienceUser": {"zh": "我自己用", "en": "For me"},
   "AgentProfiles.audienceChannels": {"zh": "接到聊天平台", "en": "On a chat platform"},
   "AgentProfiles.audienceUserHint": {"zh": "在 Antumi 里和它聊天、委派给它、放进团队。", "en": "Chat with it in Antumi, delegate to it, put it in a team."},
-  "AgentProfiles.audienceChannelsHint": {"zh": "同事在 Slack、飞书或钉钉上 @ 它提问。", "en": "Colleagues mention it on Slack, Feishu or DingTalk to ask."},
+  "AgentProfiles.audienceChannelsHint": {"zh": "同事在 Slack、飞书、Lark 或钉钉上 @ 它提问。", "en": "Colleagues mention it on Slack, Feishu, Lark or DingTalk to ask."},
   "AgentProfiles.audienceChannelsDetail": {"zh": "它只读你选的项目，所以没有技能、MCP 和可调用的智能体要配；也不出现在你自己的会话、委派和团队里。", "en": "It reads only the projects you pick, so there are no skills, MCP servers or callable agents to set, and it does not appear in your own conversations, delegations or teams."},
   "AgentProfiles.audienceLocked": {"zh": "它已经接在聊天平台上。要改成自己用，先在下面移除接入。", "en": "It is on a chat platform. To use it yourself, remove the channel below first."},
   "AgentProfiles.channelsRunHint": {"zh": "在聊天平台上它始终只读，没有命令行，也不加载外部智能体自己的设置、技能和 MCP。", "en": "On a chat platform it is always read-only, with no command line and none of the external agent's own settings, skills or MCP servers."},
@@ -13422,4 +13458,63 @@ export const MESSAGES = {
   "ArchivedConversationSettings.deleting": {"zh": "正在删除…", "en": "Deleting…"},
   "ConversationActions.deleteConversations": {"zh": "删除这 {count} 条会话及其聊天记录？项目目录或 Antumi 托管目录都会保留，不会改动其中的文件。", "en": "Delete these {count} {count, plural, one {conversation} other {conversations}} and their chat history? Project and Antumi-managed directories and their files will be kept."},
   "ConversationActions.alsoCleanTheirWorktrees": {"zh": "同时清理它们的 {count} 个 worktree", "en": "Also clean their {count} {count, plural, one {worktree} other {worktrees}}"},
+  "BackendLocation.title": {"zh": "后端位置", "en": "Backend location"},
+  "BackendLocation.description": {"zh": "Antumi 的后端在哪里运行，任务、会话和 Agent 都跟着它：本机，或 WSL 2 里的发行版。", "en": "Where Antumi's backend runs, and with it your tasks, conversations and Agents: on this machine or in a WSL 2 distro."},
+  "BackendLocation.choose": {"zh": "运行位置", "en": "Run on"},
+  "BackendLocation.chooseDescription": {"zh": "选 WSL 发行版时，用的是发行版里的项目、git 和 Agent，发行版里要装好 Node 24 以上和要用的 Agent。切换后 Antumi 会重启。", "en": "With a WSL distro, Antumi uses the projects, git and Agents inside it, so the distro needs Node 24 or later and the Agents you use. Switching restarts Antumi."},
+  "BackendLocation.local": {"zh": "本机", "en": "This machine"},
+  "BackendLocation.localDescription": {"zh": "Windows 上的项目和 Agent", "en": "Projects and Agents on Windows"},
+  "BackendLocation.wsl": {"zh": "WSL 里的 {distro}", "en": "{distro} in WSL"},
+  "BackendLocation.distroDefault": {"zh": "默认发行版", "en": "Default distro"},
+  "BackendLocation.distroWsl1": {"zh": "WSL 1，要转成 WSL 2 才能选", "en": "WSL 1; convert it to WSL 2 to choose it"},
+  "BackendLocation.distroMissing": {"zh": "找不到这个发行版", "en": "Distro not found"},
+  "BackendLocation.running": {"zh": "现在运行在", "en": "Running now"},
+  "BackendLocation.fellBack": {"zh": "「{distro}」里的后端没能启动，这次先用本机的，看到的是本机的任务和会话。", "en": "The backend in {distro} did not start, so this machine's is in use for now, with this machine's tasks and conversations."},
+  "BackendLocation.unlisted": {"zh": "没能从 wsl.exe 读到发行版列表。", "en": "Could not get the list of distros from wsl.exe."},
+  "BackendLocation.noDistros": {"zh": "这台电脑上还没有 WSL 发行版。在 PowerShell 里运行下面的命令装一个 Ubuntu，装好后点「重新检测」。", "en": "No WSL distro is installed on this computer. Install Ubuntu with the command below in PowerShell, then click Check again."},
+  "BackendLocation.recheck": {"zh": "重新检测", "en": "Check again"},
+  "BackendLocation.rechecking": {"zh": "正在检测…", "en": "Checking…"},
+  "BackendLocation.confirmLocal": {"zh": "把后端换到本机？", "en": "Move the backend to this machine?"},
+  "BackendLocation.confirmWsl": {"zh": "把后端换到 WSL 里的「{distro}」？", "en": "Move the backend to {distro} in WSL?"},
+  "BackendLocation.confirmBody": {"zh": "Antumi 会立即重启。那边有自己的一份任务、会话和设置，和现在看到的互不相通；切回来时，这边的都还在。", "en": "Antumi restarts right away. That place has its own tasks, conversations and settings, separate from the ones you see now; switching back brings these back."},
+  "BackendLocation.confirmAction": {"zh": "切换并重启", "en": "Switch and restart"},
+  "BackendLocation.restarting": {"zh": "正在重启…", "en": "Restarting…"},
+  "BackendLocation.switchFailed": {"zh": "没能保存这个选择，请再试一次。", "en": "Could not save the choice. Try again."},
+  "BackendLocation.notYet": {"zh": "后端在 WSL 里时暂时没有：手机在局域网里直连，以及保持电脑唤醒。", "en": "Not yet available with the backend in WSL: phones connecting directly over the local network, and keeping the computer awake."},
+  "BackendLocation.restart": {"zh": "重启 Antumi 再试", "en": "Restart Antumi and retry"},
+  "BackendLocation.notice": {"zh": "「{distro}」里的后端没能启动，现在显示的是本机的任务和会话。", "en": "The backend in {distro} did not start; this machine's tasks and conversations are shown instead."},
+  "BackendLocation.dismiss": {"zh": "关闭提示", "en": "Dismiss"},
+  "BackendLocation.problemWslUnavailable": {"zh": "这台电脑没有装 WSL。", "en": "WSL is not installed on this computer."},
+  "BackendLocation.problemWslUnavailableFix": {"zh": "在管理员 PowerShell 里运行下面的命令，重启电脑后再回来选发行版。", "en": "Run this in an administrator PowerShell, restart the computer, then come back to choose a distro."},
+  "BackendLocation.problemWslUnknown": {"zh": "wsl.exe 没有回答，不知道「{distro}」的情况。", "en": "wsl.exe did not answer, so nothing is known about {distro}."},
+  "BackendLocation.problemWslUnknownFix": {"zh": "WSL 可能还在启动，也可能出了错。过一会儿重启 Antumi 再试。wsl.exe 的输出：", "en": "WSL may still be starting, or something went wrong. Restart Antumi in a moment to try again. wsl.exe said:"},
+  "BackendLocation.problemDistroMissing": {"zh": "找不到发行版「{distro}」。", "en": "The distro {distro} is not there."},
+  "BackendLocation.problemDistroMissingFix": {"zh": "它可能已经卸载或改了名。选另一个发行版，或改回本机。", "en": "It may have been removed or renamed. Choose another distro, or this machine."},
+  "BackendLocation.problemWsl1": {"zh": "「{distro}」是 WSL 1 的发行版。", "en": "{distro} runs on WSL 1."},
+  "BackendLocation.problemWsl1Fix": {"zh": "后端只能在 WSL 2 里运行。在 PowerShell 里运行下面的命令把它转成 WSL 2（要几分钟），再重启 Antumi。", "en": "The backend runs only in WSL 2. Convert the distro with this command in PowerShell (it takes a few minutes), then restart Antumi."},
+  "BackendLocation.problemArch": {"zh": "「{distro}」是 {arch} 的发行版，目前只支持 x64。", "en": "{distro} is an {arch} distro; only x64 is supported for now."},
+  "BackendLocation.problemLogin": {"zh": "「{distro}」的登录 shell 没有回应。", "en": "The login shell of {distro} did not answer."},
+  "BackendLocation.problemLoginFix": {"zh": "Antumi 要从登录 shell 取 PATH。在终端里打开这个发行版，看能不能正常进入、没有卡住或报错，再重启 Antumi。", "en": "Antumi reads the PATH from the login shell. Open the distro in a terminal and check that it starts without hanging or errors, then restart Antumi."},
+  "BackendLocation.problemNodeMissing": {"zh": "「{distro}」里找不到 Node。", "en": "Node was not found in {distro}."},
+  "BackendLocation.problemNodeOld": {"zh": "「{distro}」里的 Node 是 {version}，需要 24 以上。", "en": "Node in {distro} is {version}; 24 or later is needed."},
+  "BackendLocation.problemNodeFound": {"zh": "找到的是 {path}。", "en": "Found at {path}."},
+  "BackendLocation.problemNodeFix": {"zh": "后端用发行版里的 Node，要 24 以上，而且要是登录 shell 的 PATH 上默认的那个：装了新版但没设成默认，Antumi 也找不到。装好后重启 Antumi。", "en": "The backend uses the distro's own Node, 24 or later, and it must be the default one on the login shell's PATH: a newer Node that is installed but not the default is not found. Restart Antumi once it is in place."},
+  "BackendLocation.problemNodeNvm": {"zh": "用 nvm 的：", "en": "With nvm:"},
+  "BackendLocation.problemNodeApt": {"zh": "没有 nvm（Ubuntu、Debian）：", "en": "Without nvm (Ubuntu, Debian):"},
+  "BackendLocation.problemInstall": {"zh": "没能把后端装进「{distro}」。", "en": "Could not install the backend in {distro}."},
+  "BackendLocation.problemPty": {"zh": "「{distro}」的系统库太旧。", "en": "The system libraries in {distro} are too old."},
+  "BackendLocation.problemPtyFix": {"zh": "后端的终端组件按 Ubuntu 22.04 编译，需要同样新或更新的发行版。换一个新些的发行版，或升级这个。", "en": "The backend's terminal component is built for Ubuntu 22.04 and later. Use a newer distro, or upgrade this one."},
+  "BackendLocation.problemStart": {"zh": "「{distro}」里的后端没能启动。", "en": "The backend in {distro} did not start."},
+  "BackendLocation.problemStartFix": {"zh": "完整日志在发行版里的 {log}。", "en": "The full log is in {log} inside the distro."},
+  "BackendLocation.remote": {"zh": "远程主机 {host}", "en": "Remote host {host}"},
+  "BackendLocation.remoteUnconfigured": {"zh": "远程主机（未配置）", "en": "Remote host (not configured)"},
+  "BackendLocation.remoteDescription": {"zh": "这台机器只跑界面，Agent 和项目在远程主机上；连接信息在 remote.json 里。", "en": "This machine runs only the interface; Agents and projects run on the remote host from remote.json."},
+  "BackendLocation.remoteBroken": {"zh": "remote.json 有问题，需要修正后才能选", "en": "remote.json is broken and must be fixed before it can be chosen"},
+  "BackendLocation.confirmRemote": {"zh": "把后端换到远程主机？", "en": "Move the backend to the remote host?"},
+  "BackendLocation.problemRemoteConfig": {"zh": "remote.json 读不了，远程后端没法启动。", "en": "remote.json cannot be read, so the remote backend cannot start."},
+  "BackendLocation.problemRemoteConfigFix": {"zh": "修正或补齐这台机器上的 remote.json 后重启 Antumi：", "en": "Fix or complete remote.json on this machine, then restart Antumi:"},
+  "BackendLocation.problemRemoteLink": {"zh": "连不上远程后端。", "en": "The remote backend could not be reached."},
+  "BackendLocation.problemRemoteLinkFix": {"zh": "检查 remote.json 里的 ssh 主机能否登录、对端的 Core 是否在运行，然后重启 Antumi。", "en": "Check that the ssh host in remote.json can be logged into and that a Core runs on the far side, then restart Antumi."},
+  "BackendLocation.remoteDown": {"zh": "远程后端没能启动，这次哪里也没连上：任务和会话要等它恢复才看得到。", "en": "The remote backend did not start and nothing else is serving; tasks and conversations wait for it to recover."},
+  "BackendLocation.notYetRemote": {"zh": "后端在远程主机上时暂时没有：内置浏览器、手机直连、保持电脑唤醒，以及图片等非文本文件的预览。", "en": "Not yet available with a remote backend: the built-in browser, phones connecting directly, keeping the computer awake, and previews of non-text files such as images."},
 } as const

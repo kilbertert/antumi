@@ -4,7 +4,7 @@
   background: var(--surface);
 }
 
-/* As wide as the app's sidebar, so the pane's edge stays put going in and out of settings. */
+/* Wide windows keep the pane aligned with the app's sidebar. */
 .settings .settings-nav {
   width: min(var(--sidebar-width, 320px), 40vw);
   background: var(--bg);
@@ -167,6 +167,15 @@
   .appearance-preview { position: static; grid-row: 2; max-height: none; overflow: visible; max-width: 480px; width: 100%; }
 }
 
+@media (max-width: 1280px) {
+  .settings .settings-nav { width: min(var(--sidebar-width, 320px), 224px, 40vw); }
+  .settings .settings-nav-top { gap: 8px; padding-inline: 16px; }
+  .settings .settings-groups { padding-inline: 8px; }
+  .settings .settings-group-title { padding-inline: 8px; }
+  .settings .settings-nav-item { padding-inline: 8px; gap: 8px; }
+  .settings-nav-footer { margin-inline: 16px; }
+}
+
 @media (max-width: 760px) {
   .settings .settings-inner { padding: 32px 24px 64px; }
   .settings .settings-section-header { margin-bottom: 32px; }
@@ -295,6 +304,8 @@
 .account-agent-heading h3 > span:last-child { color: var(--text-muted); font-size: 12px; font-weight: 400; }
 .account-agent-heading .account-add { margin: 0; padding: 0; flex-wrap: wrap; }
 .account-add .input { width: 200px; max-width: 100%; min-width: 0; }
+.account-key-form { flex-wrap: wrap; }
+.account-key-form select.input { width: auto; }
 .account-entry { padding: 14px 0; }
 .account-entry + .account-entry { border-top: 1px solid var(--border); }
 .account-entry-main { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
@@ -374,3 +385,18 @@
 .mobile-relay-codes { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 4px; }
 .mobile-relay-codes figure { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0; }
 .mobile-relay-reveal { width: 168px; height: 168px; }
+
+/* 后端位置: notes, what went wrong and what to type, between the rows of one card. */
+.backend-location-block { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 0; padding: 14px 0; border-top: 1px solid var(--border); font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+.backend-location-block + .settings-row { border-top: 1px solid var(--border); }
+.backend-location-block p { margin: 0; }
+.backend-location-block[data-failed] { color: var(--danger); }
+.backend-location-block code { font-family: var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.backend-location-problem-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: var(--warning); }
+.backend-location-problem-title svg { width: 16px; height: 16px; flex-shrink: 0; }
+.backend-location-command { display: flex; align-items: center; gap: 4px; max-width: 100%; }
+.backend-location-command code { min-width: 0; padding: 2px 8px; border-radius: var(--radius-xs); background: var(--fill); user-select: text; }
+.backend-location-detail { align-self: stretch; max-height: 160px; overflow: auto; margin: 0; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--fill-2); color: var(--text); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.backend-location-running { display: inline-flex; align-items: center; gap: 6px; }
+.backend-location-running[data-fell-back] { color: var(--warning); }
+.backend-location-running svg { width: 14px; height: 14px; }

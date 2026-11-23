@@ -58,6 +58,14 @@ async function readJsonServers(source: AgentKind, file: string): Promise<FoundMc
 // ZCode's: an mcp.servers object in its CLI settings, each turned off with enabled: false.
 const ZCodeConfig = z.looseObject({ mcp: z.looseObject({ servers: z.record(z.string(), z.unknown()).catch({}).optional() }).optional() })
 
+// CodeBuddy reads only the first of its user-wide files that exists (its docs, MCP → 配置文件).
+async function readCodebuddyServers(dir: string, homedir: string): Promise<FoundMcpServer[]> {
+  for (const file of [path.join(dir, '.mcp.json'), path.join(dir, 'mcp.json'), path.join(homedir, '.codebuddy.json')]) {
+    if ((await readJsonIfExists(file).catch(() => null)) !== undefined) return readJsonServers('codebuddy', file)
+  }
+  return []
+}
+
 async function readZCodeServers(file: string): Promise<FoundMcpServer[]> {
   const parsed = ZCodeConfig.safeParse(await readJsonIfExists(file).catch(() => undefined))
   return Object.entries(parsed.data?.mcp?.servers ?? {})
@@ -110,7 +118,8 @@ export async function findAgentMcpServers({ env = process.env, homedir = os.home
     readJsonServers('antigravity', path.join(env.GEMINI_HOME || path.join(homedir, '.gemini'), 'config', 'mcp_config.json')),
     readZCodeServers(env.ZCODE_CLI_SETTINGS_FILE?.trim() || path.join(homedir, '.zcode', 'cli', 'config.json')),
     readJsonServers('kimi', path.join(env.KIMI_CODE_HOME || path.join(homedir, '.kimi-code'), 'mcp.json')),
-    readJsonServers('gemini', path.join(geminiHome(env, homedir), 'settings.json'))])
+    readJsonServers('gemini', path.join(geminiHome(env, homedir), 'settings.json')),
+    readCodebuddyServers(env.CODEBUDDY_CONFIG_DIR || path.join(homedir, '.codebuddy'), homedir)])
   return found.flat()
 }
 

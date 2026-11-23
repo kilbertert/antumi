@@ -3,10 +3,13 @@ import { Discussion, Task, createRpcClient, type Conversation, type RpcConnectio
 import { actionableItems } from './attention'
 import {
   openAttentionItem, openConversationDraft, selectConversation, selectTask, openOverview, openGit, setGitLocation, setGitMaximized, toggleGitPanel, toggleFilesPanel, setFilesMaximized, toggleBrowserPanel, filesContext, setOverviewFilter, setOverviewScroll, setOverviewView, setRoutinesOpen,
-  refreshAttentionSummaries, setInboxOpen, setTaskStarting, openChatWhileStarting, setSchedulesOpen, setSettingsOpen, setWorktreesOpen, useCore,
+  openPluginPage, leavePluginPage, receivePlugins, refreshAttentionSummaries, setInboxOpen, setTaskStarting, openChatWhileStarting, setSchedulesOpen, setSettingsOpen, setWorktreesOpen, useCore,
   clearInspectorFile, closeConversationDraft, installAgentCli, openConversationTarget, openDiscussionDraft, switchDraftMode, showConversationChanges, showInspectorFile, showTaskChanges, selectSquad, selectDiscussion
 } from './core-store'
 import { conversationSurface } from './components/chat-surface'
+import { PluginInfo } from '@antumi/protocol'
+import { PanelContext } from '../../shared/panel-window'
+import { panelContext } from './panel-window-context'
 
 const task = Task.parse({ id: 'task', title: 'Review me', details: '', status: 'review', conversationId: 'chat', repos: [], dependsOn: [], agent: 'claude', createdAt: 0, updatedAt: 0 })
 const chat: Conversation = {
@@ -433,5 +436,69 @@ describe('opening a task\'s chat while it starts', () => {
   it('goes back to the details when the start fails', async () => {
     expect(await openChatWhileStarting('task', async () => null)).toBe(false)
     expect(useCore.getState()).toMatchObject({ selectedId: 'task', view: 'detail', startingTasks: [] })
+  })
+})
+
+describe('plugin pages', () => {
+  const forum = PluginInfo.parse({
+    id: 'dev.antumi.forum', version: '1.0.0', enabled: true, sources: [], versions: ['1.0.0'], origin: { kind: 'bundled' }, problem: null,
+    pages: [{ id: 'forum', label: '论坛', translations: { en: { label: 'Forum' } }, entry: 'page/index.html' }]
+  })
+
+  it('opens a page over everything, leaving it on another choice and back to the chat it came from', () => {
+    useCore.setState({ conversations: { chat }, plugins: [forum] })
+    selectConversation(chat.id)
+    toggleFilesPanel()
+    useCore.setState({ routinesOpen: true })
+    openPluginPage(forum.id, 'forum')
+    expect(useCore.getState()).toMatchObject({ section: 'plugin', pluginPage: { plugin: forum.id, page: 'forum' }, routinesOpen: false, overviewOpen: false, filesPanelOpen: false, selectedConversationId: chat.id })
+    expect(filesContext(useCore.getState())).toEqual({ key: 'page', scope: null })
+    // Panel windows hear of it as the page it is.
+    expect(PanelContext.safeParse(panelContext(useCore.getState())).success).toBe(true)
+    leavePluginPage()
+    expect(useCore.getState()).toMatchObject({ section: 'conversations', selectedConversationId: chat.id, pluginPage: null })
+  })
+
+  it('is left by selecting a conversation, a task or the overview, and kept under settings', () => {
+    useCore.setState({ conversations: { chat }, tasks: { [task.id]: task }, plugins: [forum] })
+    openPluginPage(forum.id, 'forum')
+    setSettingsOpen(true)
+    setSettingsOpen(false)
+    expect(useCore.getState().section).toBe('plugin')
+    selectConversation(chat.id)
+    expect(useCore.getState().section).toBe('conversations')
+    openPluginPage(forum.id, 'forum')
+    selectTask(task.id)
+    expect(useCore.getState().section).toBe('tasks')
+    openPluginPage(forum.id, 'forum')
+    openOverview()
+    expect(useCore.getState()).toMatchObject({ section: 'tasks', overviewOpen: true })
+    openPluginPage(forum.id, 'forum')
+    selectSquad(null)
+    expect(useCore.getState().section).toBe('squads')
+  })
+
+  it('closes the page when its plugin is disabled, uninstalled or no longer ships it', () => {
+    useCore.setState({ plugins: [forum] })
+    openPluginPage(forum.id, 'forum')
+    receivePlugins([{ ...forum, version: '1.1.0' }])
+    expect(useCore.getState()).toMatchObject({ section: 'plugin', plugins: [{ version: '1.1.0' }] })
+    receivePlugins([{ ...forum, enabled: false }])
+    expect(useCore.getState()).toMatchObject({ section: 'conversations', pluginPage: null })
+    openPluginPage(forum.id, 'forum')
+    receivePlugins([])
+    expect(useCore.getState()).toMatchObject({ section: 'conversations', pluginPage: null, plugins: [] })
+    receivePlugins([forum])
+    openPluginPage(forum.id, 'forum')
+    receivePlugins([{ ...forum, pages: [] }])
+    expect(useCore.getState()).toMatchObject({ section: 'conversations', pluginPage: null })
+  })
+
+  it('forgets a page gone while elsewhere without moving the user', () => {
+    useCore.setState({ conversations: { chat }, plugins: [forum] })
+    openPluginPage(forum.id, 'forum')
+    selectConversation(chat.id)
+    receivePlugins([])
+    expect(useCore.getState()).toMatchObject({ section: 'conversations', selectedConversationId: chat.id, pluginPage: null })
   })
 })

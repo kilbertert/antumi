@@ -63,6 +63,12 @@ export type AccountSupport = {
   // Its CLI's arguments to sign in, and out, in the folder its env names.
   login: readonly string[]
   logout: readonly string[]
+  // Its sign-in is an interactive session that asks to trust the folder it starts in, warning of
+  // the home folder: it starts in an empty folder of Antumi's instead.
+  signInFolder?: boolean
+  // For an agent whose descriptor has accountKeys: the variables that run it on an API key of
+  // that edition, beside env(home).
+  keys?(apiKey: string, edition: string): Record<string, string>
 }
 
 export type AgentDetection = Omit<EnvironmentCheck, 'tool'>

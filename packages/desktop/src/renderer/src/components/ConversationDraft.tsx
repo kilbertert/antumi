@@ -32,6 +32,7 @@ import { inboxKey, investigationMode, rememberInvestigationProjects } from '../s
 import { rememberedPick, type DraftChoice } from '../draft-choices'
 import { catalogKey, providerFor } from '../model-provider-choice'
 import { ProviderPicker } from './ProviderPicker'
+import { AccountPicker } from './AccountPicker'
 import { ModelsUnavailableNote } from './ModelsUnavailableNote'
 import { DraftModeSwitch } from './DraftModeSwitch'
 import { AgentAvatar } from './AgentAvatar'
@@ -87,6 +88,8 @@ export function ConversationDraft() {
   const [providerId, setProviderId] = useState<string | null>(() => profile?.modelProvider ?? initial?.modelProvider ?? carry?.modelProvider ?? null)
   const providers = useCore((s) => s.modelProviders)
   const providerOf = (kind: AgentKind | null) => providerFor(providers, providerId, kind)
+  // The account picked for each agent, kept for the conversation; unpicked follows the active one.
+  const [accountPicks, setAccountPicks] = useState<Partial<Record<AgentKind, string>>>({})
   // Each agent's models (a provider's where it runs on one), asked for once it is picked; absent
   // while asking, null when core cannot say.
   const [catalogs, setCatalogs] = useState<Record<string, ChatCatalog | null>>({})
@@ -187,6 +190,7 @@ export function ConversationDraft() {
   const chosen = {
     ...(optionsSupported ? { permissionMode: mode ?? undefined, ...(pick.model ? { model: pick.model } : {}), ...(effort ? { effort } : {}) } : {}),
     ...(provider ? { modelProvider: provider.id } : {}),
+    ...(!provider && agent && accountPicks[agent] ? { account: accountPicks[agent] } : {}),
     ...(profile ? { profileId: profile.id } : {}),
     ...(analysis ? { knowledgeBase: false } : {})
   }
@@ -366,6 +370,12 @@ export function ConversationDraft() {
                     // Models differ between accounts, so what was picked for the old one goes.
                     setProviderId(next)
                     setPicks({})
+                  }} />
+                )}
+                {agent && !provider && (
+                  <AccountPicker agent={agent} value={accountPicks[agent] ?? null} disabled={busy} onChange={(next) => {
+                    const { [agent]: _previous, ...rest } = accountPicks
+                    setAccountPicks(next ? { ...rest, [agent]: next } : rest)
                   }} />
                 )}
                 {agent && optionsSupported && (

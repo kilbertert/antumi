@@ -165,8 +165,8 @@ export class TerminalService {
   }
 
   // An agent's CLI signing in to an account: its own argv, no shell, pointed at the account's folder.
-  signIn(argv: { command: string; args: readonly string[] }, env: Record<string, string>, title: string, agent?: AgentKind): Promise<Terminal> {
-    return this.runFinite({ command: argv.command, args: [...argv.args] }, title, [argv.command, ...argv.args].join(' '), env, agent)
+  signIn(argv: { command: string; args: readonly string[] }, env: Record<string, string>, title: string, agent?: AgentKind, cwd?: string): Promise<Terminal> {
+    return this.runFinite({ command: argv.command, args: [...argv.args] }, title, [argv.command, ...argv.args].join(' '), env, agent, cwd)
   }
 
   async upgradeCli(agent: AgentKind, upgradeId: string, argv: { command: string; args: string[] }): Promise<Terminal> {
@@ -187,8 +187,7 @@ export class TerminalService {
   }
 
   // A finite command the user started and follows in a tab; command: how the tab names it.
-  private async runFinite(argv: { command: string; args: string[] }, title: string, command: string, env: Record<string, string> = {}, agent?: AgentKind): Promise<Terminal> {
-    const cwd = os.homedir()
+  private async runFinite(argv: { command: string; args: string[] }, title: string, command: string, env: Record<string, string> = {}, agent?: AgentKind, cwd = os.homedir()): Promise<Terminal> {
     const id = randomUUID()
     const { sessionId } = await this.daemon.request('spawn', { ...argv, agent, cwd, env: { ...terminalEnv(), ...env, ...ownedBy({ kind: 'terminal', id }) }, cols: 120, rows: 32 })
     const terminal = { id, sessionId, cwd, title, createdAt: this.now(), command }

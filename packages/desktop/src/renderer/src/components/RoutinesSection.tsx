@@ -1,12 +1,13 @@
 import { localized, t, tr } from '../i18n'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { isScheduleOpen, type Routine, type ScheduledRun } from '@antumi/protocol'
 import { selectConversation, setAwakeMode, useCore } from '../core-store'
 import { reasonText } from '../labels'
 import { deleteRoutine, fetchRoutineRuns, isUnread, markRoutineAllSeen, nextRunText, routineAgentLabel, runOutcomeText, runRoutineNow, scheduleText, updateRoutine } from '../routines'
 import { scheduleTime, UNATTENDED_LABEL } from '../schedules'
 import { useNow } from '../usage-format'
-import { ChevronRightIcon, ClockIcon, MoreIcon, PauseIcon, PencilIcon, PlayIcon, PlusIcon, TrashIcon } from './icons'
+import { ChevronRightIcon, ClockIcon, MoreIcon, PencilIcon, PlayIcon, PlusIcon, TrashIcon } from './icons'
+import { Spinner } from './Spinner'
 import type { ReactNode } from 'react'
 import { AgentsPageHeader } from './AgentsPageHeader'
 import { ContextMenu, MenuItem, type MenuPoint } from './ContextMenu'
@@ -76,10 +77,21 @@ function History({ routine, now }: { routine: Routine; now: number }) {
 function Row({ routine, now, onEdit }: { routine: Routine; now: number; onEdit: () => void }) {
   const [open, setOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [action, setAction] = useState<'run' | 'toggle' | null>(null)
+  const acting = useRef(false)
   const [menu, setMenu] = useState<{ at: MenuPoint; trigger: HTMLElement } | null>(null)
   const failure = routine.lastRun && (routine.lastRun.status === 'failed' || routine.lastRun.outcome === 'failed') ? routine.lastRun.error : null
+  const manual = routine.schedule.kind === 'manual'
+  const status = manual ? 'manual' : routine.enabled ? 'enabled' : 'paused'
+  const statusText = manual ? t('RoutinesSection.manualOnly') : routine.enabled ? t('McpSettingsSection.enabled') : t('SquadWorkPanel.paused')
+  const act = async (kind: 'run' | 'toggle', operation: () => Promise<unknown>) => {
+    if (acting.current) return
+    acting.current = true
+    setAction(kind)
+    try { await operation() } finally { acting.current = false; setAction(null) }
+  }
   return (
-    <li className="routine-row" data-paused={!routine.enabled || undefined} data-open={open || undefined}>
+    <li className="routine-row" data-paused={status === 'paused' || undefined} data-open={open || undefined}>
       <div className="routine-line">
         <button type="button" className="routine-toggle" aria-expanded={open} aria-label={open ? t('RoutinesSection.collapseHistory') : t('RoutinesSection.expandHistory')} onClick={() => setOpen(!open)}>
           <ChevronRightIcon />
@@ -87,13 +99,14 @@ function Row({ routine, now, onEdit }: { routine: Routine; now: number; onEdit: 
         <span className="routine-main">
           <span className="routine-title-line">
             <button type="button" className="schedule-title routine-title" onClick={() => setOpen(!open)}>{routine.title}</button>
+            <span className="routine-status" data-state={status}>{statusText}</span>
             {routine.unread > 0 && <span className="inbox-entry-count routine-unread" aria-label={t('RoutinesSection.unreadRuns', { value1: routine.unread })}>{routine.unread}</span>}
           </span>
           <span className="schedule-meta">
-            {scheduleText(routine.schedule)} · {routineAgentLabel(routine.target.agent)} · {nextRunText(routine, now)}
+            {scheduleText(routine.schedule)} · {routineAgentLabel(routine.target.agent)} · {manual || !routine.enabled ? t('RoutinesSection.noAutomaticRuns') : nextRunText(routine, now)}
             {routine.lastRun && isScheduleOpen(routine.lastRun) && <span> · {runOutcomeText(routine.lastRun, now)}</span>}
-            {failure && <span className="routine-failure">{tr('RoutinesSection.last', { value1: reasonText(failure, failure) })}</span>}
           </span>
+          {failure && <span className="routine-failure">{t('RoutinesSection.lastFailure', { reason: reasonText(failure, failure) })}</span>}
         </span>
         <span className="schedule-actions routine-actions">
           {deleting ? (
@@ -105,7 +118,12 @@ function Row({ routine, now, onEdit }: { routine: Routine; now: number; onEdit: 
           ) : (
             <>
               {routine.unread > 0 && <button type="button" className="link-button" onClick={() => markRoutineAllSeen(routine.id)}>{t('RoutinesSection.markAllAsRead')}</button>}
-              <button type="button" className="tool-button" aria-label={t('OverviewView.runNow')} data-tooltip={t('RoutinesSection.runImmediatelyIgnoringTimeAndQuota')} onClick={() => void runRoutineNow(routine.id)}><PlayIcon /></button>
+              {!manual && <label className="switch routine-enabled">
+                <input type="checkbox" role="switch" aria-label={t('RoutinesSection.automaticFor', { title: routine.title })} checked={routine.enabled} disabled={action !== null} onChange={(event) => { const enabled = event.currentTarget.checked; void act('toggle', () => updateRoutine(routine.id, { enabled })) }} />
+                <span className="switch-track" aria-hidden="true" />
+                <span>{t('RoutinesSection.automaticRuns')}</span>
+              </label>}
+              <button type="button" className="button ghost routine-run-now" aria-label={t('RoutinesSection.runOnceFor', { title: routine.title })} data-tooltip={t('RoutinesSection.runImmediatelyIgnoringTimeAndQuota')} disabled={action !== null} onClick={() => void act('run', () => runRoutineNow(routine.id))}>{action === 'run' ? <Spinner /> : <PlayIcon />}{action === 'run' ? t('MobileSettings.starting') : t('RoutinesSection.runOnce')}</button>
               <button type="button" className="tool-button" aria-label={t('chatTools.edit')} data-tooltip={t('chatTools.edit')} onClick={onEdit}><PencilIcon /></button>
               <button
                 type="button"
@@ -128,7 +146,6 @@ function Row({ routine, now, onEdit }: { routine: Routine; now: number; onEdit: 
       </div>
       {menu && (
         <ContextMenu at={menu.at} align="end" trigger={menu.trigger} label={t('FileEditor.moreActions')} onClose={() => setMenu(null)}>
-          <MenuItem label={routine.enabled ? t('DiscussionView.pause') : t('RoutinesSection.enable')} icon={routine.enabled ? <PauseIcon /> : <PlayIcon />} onSelect={() => { setMenu(null); void updateRoutine(routine.id, { enabled: !routine.enabled }) }} />
           <MenuItem label={t('ChatCommandSettings.delete')} icon={<TrashIcon />} danger onSelect={() => { setMenu(null); setDeleting(true) }} />
         </ContextMenu>
       )}

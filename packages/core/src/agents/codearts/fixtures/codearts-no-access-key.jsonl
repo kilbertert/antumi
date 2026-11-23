@@ -1,0 +1,2 @@
+{"dir": "out", "at": 3, "frame": {"jsonrpc": "2.0", "id": "codearts-init", "method": "initialize", "params": {"protocolVersion": 1, "clientInfo": {"name": "antumi", "version": "1"}, "clientCapabilities": {"fs": {"readTextFile": false, "writeTextFile": false}, "terminal": false}}}}
+{"dir": "in", "at": 1187, "frame": {"jsonrpc": "2.0", "id": "codearts-init", "error": {"code": -32603, "message": "认证失败，没有设置环境变量CODEARTS_CLI_AK/CODEARTS_CLI_SK\n请在华为云统一身份认证页面申请AK/SK，通过配置环境变量的方式使用cli命令。\n具体操作请参考以下指引：https://codearts.huaweicloud.com/portal/settings/cli-auth"}}}

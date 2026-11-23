@@ -65,6 +65,7 @@ jobs:
           const download = (name) => `[${name}](https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${tag}/${name})`;
           const installers = [
             ['macOS · Apple Silicon', `Antumi-${version}-macos-arm64.dmg`],
+            ['macOS · Intel', `Antumi-${version}-macos-x64.dmg`],
             ['Windows · x64', `Antumi-${version}-windows-x64.exe`],
             ['Linux · x64（AppImage）', `Antumi-${version}-linux-x86_64.AppImage`],
             ['Linux · x64（deb）', `Antumi-${version}-linux-amd64.deb`]
@@ -83,8 +84,34 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  build:
+  # The backend a Windows app installs into a WSL distro (docs/WSL.md). On the oldest runner there
+  # is: node-pty compiled against a newer glibc does not load in a distro with an older one.
+  wsl-backend:
     needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.commit }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node packages/desktop/scripts/bundle-backend.mjs --platform linux --wsl
+      - run: node packages/desktop/scripts/pack-wsl-backend.mjs
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wsl-backend
+          path: packages/desktop/build/wsl/
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    needs: [verify, wsl-backend]
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -92,10 +119,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-arm64
+          - platform: macos
             runner: macos-15
             command: dist:mac
-            artifact: packages/desktop/dist/Antumi-*-macos-arm64.dmg
+            artifact: packages/desktop/dist/Antumi-*-macos-*.dmg
           - platform: windows-x64
             runner: windows-2025
             command: dist:win
@@ -120,6 +147,11 @@ jobs:
           node-version: '24'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - if: matrix.platform == 'windows-x64'
+        uses: actions/download-artifact@v8
+        with:
+          name: wsl-backend
+          path: packages/desktop/build/wsl
       # electron-builder fetches Electron and its packaging tools from GitHub releases once, without
       # retrying; a 504 there failed a whole release, so the build gets a few spaced tries.
       - name: Build installer

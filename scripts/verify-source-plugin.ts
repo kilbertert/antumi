@@ -15,6 +15,8 @@ for (const archive of archives) {
     const manifest = await readManifest(directory, version)
     const runtime = new PluginProcess(manifest, packagePath(directory, manifest.entry.main), {})
     try {
+      const handshake = await runtime.call('handshake', { protocolVersion: 1 })
+      assert.deepEqual([...handshake.pages].sort(), manifest.contributes.pages.map((page) => page.id).sort())
       const providers = await runtime.providers()
       assert.deepEqual(providers.map((provider) => provider.id), manifest.contributes.sources.map((source) => source.id))
       for (const provider of providers) assert.equal(provider.envCredential?.({}), null)

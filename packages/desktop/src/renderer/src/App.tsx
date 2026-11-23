@@ -22,12 +22,15 @@ import { ConversationView } from './components/ConversationView'
 import { ConversationSplit } from './components/ConversationSplit'
 import { ConversationDraft } from './components/ConversationDraft'
 import { EnvironmentNotice } from './components/EnvironmentNotice'
+import { BackendLocationNotice } from './components/BackendLocationNotice'
 import { StatusBar } from './components/StatusBar'
 import { UtilityPanelDock } from './components/UtilityPanelDock'
 import { SearchPalette } from './components/SearchPalette'
 import { WorktreeManager } from './components/WorktreeManager'
 import { RoutinesView } from './components/RoutinesView'
 import { RoutinesEntry } from './components/RoutinesEntry'
+import { PluginPageEntries } from './components/PluginPageEntries'
+import { PluginPageStack } from './components/PluginPageStack'
 import { DiscussionView } from './components/DiscussionView'
 import { DiscussionDraft } from './components/DiscussionDraft'
 import { OverviewEntry } from './components/OverviewEntry'
@@ -41,6 +44,7 @@ import { TaskLaunchDialog } from './components/TaskLaunchDialog'
 import { usePreferences } from './preferences'
 import { usePortPolling } from './port-state'
 import { useUpdateFeed } from './update-state'
+import { useBackendLocationFeed } from './backend-location-state'
 import { recordingPanelShortcut, usePanelShortcuts } from './panel-shortcuts'
 
 // Esc goes from a task back to the board, unless it is meant for what has the focus:
@@ -58,6 +62,7 @@ export function App() {
   useLocale((state) => state.locale)
   usePortPolling()
   useUpdateFeed()
+  useBackendLocationFeed()
   const selectedId = useCore((s) => s.selectedId)
   const section = useCore((s) => s.section)
   const selectedConversationId = useCore((s) => s.selectedConversationId)
@@ -66,6 +71,7 @@ export function App() {
   const conversationDraftFrom = useCore((s) => s.conversationDraftFrom)
   const draftProfileId = useCore((s) => s.draftProfileId)
   const selectedDiscussionId = useCore((s) => s.selectedDiscussionId)
+  const pluginPage = useCore((s) => s.pluginPage)
   const draftMode = useCore((s) => s.conversationDraftMode)
   const discussionDraftFrom = useCore((s) => s.discussionDraftFrom)
   const view = useCore((s) => s.view)
@@ -150,9 +156,11 @@ export function App() {
                 <OverviewEntry />
                 <InboxEntry />
                 <RoutinesEntry />
+                <PluginPageEntries />
                 <SquadsEntry />
               </>}
               <EnvironmentNotice />
+              <BackendLocationNotice />
               {!menuCollapsed && <SidebarTasks />}
               <ConversationList />
             </Sidebar>
@@ -166,6 +174,10 @@ export function App() {
               <RoutinesView />
             ) : section === 'squads' ? (
               <AgentsView />
+            ) : section === 'plugin' ? (
+              // Drawn by PluginPageStack below, which keeps it loaded across these switches.
+              pluginPage ? null :
+                <section className="detail-empty"><div className="detail-empty-body">{t('App.chooseOrCreateAConversation')}</div></section>
             ) : section === 'discussions' ? (
               selectedDiscussionId ? <DiscussionView key={selectedDiscussionId} id={selectedDiscussionId} /> :
                 <section className="detail-empty"><div className="detail-empty-body">{t('App.chooseOrCreateAGroupChat')}</div></section>
@@ -184,6 +196,7 @@ export function App() {
             )}
           </>
         )}
+        <PluginPageStack open={!settingsOpen && !overviewOpen && !inboxOpen && !worktreesOpen && !routinesOpen && section === 'plugin' ? pluginPage : null} />
         {(portsPanelOpen || browserPanelOpen || terminalPanelOpen || filesPanelOpen || gitPanelOpen) && (
           <UtilityPanelDock
             open={{ browser: browserPanelOpen, terminal: terminalPanelOpen, ports: portsPanelOpen, files: filesPanelOpen, git: gitPanelOpen }}
