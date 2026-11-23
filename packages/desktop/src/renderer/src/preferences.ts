@@ -5,7 +5,6 @@ import { BACKDROPS } from './backdrops'
 import { PALETTES } from './palettes'
 import { PROJECT_COLORS } from './project-colors'
 import { MarkdownThemeLibrary, MarkdownThemeSelection } from './markdown-theme-packs'
-import { PetLevelPreference, PetSizePreference, PetStylePreference } from './pet-preferences'
 import { COLLAPSED_NAVIGATION_WIDTH, DEFAULT_CONVERSATION_LIST_WIDTH, DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from './sidebar-width'
 import { SetupProgress } from './setup-progress'
 import { ShortcutSettings } from '../../shared/keyboard-shortcuts'
@@ -35,9 +34,6 @@ const Preferences = z.object({
   markdownThemePacks: MarkdownThemeLibrary,
   // Experimental: the gradient behind the sidebar and status bar; none keeps the flat canvas.
   backdrop: z.enum(['none', ...BACKDROPS]).catch('none'),
-  petStyle: PetStylePreference,
-  petLevel: PetLevelPreference,
-  petSize: PetSizePreference,
   terminalFontSize: z.number().int().min(10).max(20).catch(12),
   // How far apart the terminal's lines are, as a multiple of the font's own line: Geist Mono's is
   // already a third taller than its size, enough as it is.

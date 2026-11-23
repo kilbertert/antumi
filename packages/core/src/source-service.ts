@@ -6,6 +6,7 @@ import type { ChatReference } from '@antumi/protocol'
 import {
   agentDescriptor,
   DEFAULT_INSTANCE,
+  SourceAttachmentRef,
   MAX_IMAGE_NAME_LENGTH,
   MAX_ISSUE_TITLE_LENGTH,
   MAX_SNAPSHOT_LENGTH,
@@ -41,6 +42,13 @@ const MIN_REFRESH_MS = 10_000
 const CALL_TIMEOUT_MS = 20_000
 // Fetching one issue may download its images too.
 const FETCH_TIMEOUT_MS = 120_000
+// Attachments are read on demand and can be tens of megabytes over a slow link; the snapshot
+// timeout would cut them off. The ceiling is where a single JSON-RPC message stops being sane.
+const ATTACHMENT_TIMEOUT_MS = 180_000
+const MAX_ATTACHMENT_BYTES = 64 * 1024 * 1024
+// A list nobody scrolls is a list nobody reads; the rest stay reachable in the source itself.
+const MAX_ATTACHMENTS_PER_ISSUE = 50
+type AttachmentRef = { id: string; name: string; size: number | null }
 // How long an issue's agent waits for the images a provider sends apart from the text; past it,
 // the agent starts on the text and the images follow as the next message.
 const IMAGE_GRACE_MS = 8_000
@@ -83,6 +91,9 @@ export type InvestigateOptions = Omit<RpcParsedParams<'sources.investigate'>, 'p
 export type SourceEvents = {
   inboxChanged(inbox: SourceInbox): void
   listChanged(sources: SourceDescriptor[]): void
+  // How far an attachment has been read. Throttled by the caller: a 38MB file arrives in thousands
+  // of chunks and a notification per chunk would cost more than the download.
+  attachmentProgress(progress: { provider: string; instance: string; key: string; id: string; read: number; total: number | null }): void
 }
 
 type InstanceState = {
@@ -117,6 +128,21 @@ function isWebUrl(value: string): boolean {
 }
 
 // What a provider reports is checked like any outside input: an issue that does not fit is dropped.
+// A provider's attachment list, filtered to what a client can show and ask for. An entry that
+// cannot be named is dropped rather than shown as a dead button.
+function acceptAttachments(raw: readonly { id?: unknown; name?: unknown; size?: unknown }[] | undefined): AttachmentRef[] {
+  const out: AttachmentRef[] = []
+  for (const entry of raw ?? []) {
+    const parsed = SourceAttachmentRef.safeParse({
+      id: typeof entry.id === 'string' || typeof entry.id === 'number' ? String(entry.id) : '',
+      name: typeof entry.name === 'string' ? entry.name.slice(0, 300) : '',
+      size: Number.isFinite(Number(entry.size)) && Number(entry.size) >= 0 ? Number(entry.size) : null
+    })
+    if (parsed.success) out.push(parsed.data)
+  }
+  return out.slice(0, MAX_ATTACHMENTS_PER_ISSUE)
+}
+
 function acceptIssue(raw: SourceIssue): SourceIssue | null {
   const parsed = SourceIssue.safeParse({ ...raw, title: String(raw.title).slice(0, MAX_ISSUE_TITLE_LENGTH) })
   return parsed.success && isWebUrl(parsed.data.url) ? parsed.data : null
@@ -429,6 +455,27 @@ export class SourceService {
     return this.track(id, () => done)
   }
 
+  requirementBinding(id: string, instance: string): string {
+    if (id !== 'zentao') throw new Rejection('requirement-source-unsupported', '首版从禅道导入需求')
+    const ready = this.requireReady(id, instance)
+    const sites = ready.provider.settings.filter((field) => field.bindsCredential).map((field) => [field.key, ready.settings[field.key]])
+    return createHash('sha256').update(JSON.stringify([id, instance, sites])).digest('hex')
+  }
+
+  requirementSnapshot(id: string, instance: string, rawKey: string): Promise<{ source: TaskSource; snapshot: SourceSnapshot; binding: string }> {
+    if (id !== 'zentao') return Promise.reject(new Rejection('requirement-source-unsupported', '首版从禅道导入需求'))
+    return this.track(id, async () => {
+      const check = this.guard(id, instance)
+      const ready = this.requireReady(id, instance)
+      const binding = this.requirementBinding(id, instance)
+      const key = await this.checkedKey(ready.provider, rawKey)
+      check()
+      const detail = await this.fetch(ready, key, this.state(id, instance).controller.signal)
+      check()
+      return { binding, source: { provider: id, instance, name: ready.provider.name, key: detail.issue.key, title: detail.issue.title, url: detail.issue.url }, snapshot: detail.snapshot }
+    })
+  }
+
   issue(id: string, instance: string, rawKey: string, images = false): Promise<SourceIssuePreview> {
     return this.track(id, async () => {
       const check = this.guard(id, instance)
@@ -438,6 +485,47 @@ export class SourceService {
       const detail = await this.fetch(ready, key, this.state(id, instance).controller.signal, images, 'hold')
       check()
       return { issue: detail.issue, snapshot: detail.snapshot, imagesDeferred: detail.deferred, commentsSupported: ready.provider.commentSync === 1 && !!ready.provider.comments }
+    })
+  }
+
+  // One attachment's bytes, on demand. Stored as well as returned: the same file is often wanted
+  // twice (once to open, once to hand to an agent), and a stored copy has an id to refer to.
+  // expectedSize: what the snapshot already said the file weighs. ZenTao answers with chunked
+  // encoding and no content-length, so the source cannot report a total; the snapshot can, which is
+  // what lets the progress bar show a percentage rather than just bytes.
+  async attachment(id: string, instance: string, rawKey: string, attachmentId: string, expectedSize: number | null = null): Promise<{ name: string; id: string; size: number; base64: string }> {
+    return this.track(id, async () => {
+      const check = this.guard(id, instance)
+      const ready = this.requireReady(id, instance)
+      const key = await this.checkedKey(ready.provider, rawKey)
+      check()
+      if (!ready.provider.attachment) throw new Rejection('source-request-failed', `${ready.provider.name} cannot download attachments`)
+      const abort = this.state(id, instance).controller.signal
+      let file: { name: string; bytes: Uint8Array }
+      try {
+        // Report at most a few times a second: a reader yields many small chunks, and one
+        // notification each would flood the socket the file itself is arriving on.
+        let lastAt = 0
+        const report = (read: number, total: number | null) => {
+          const now = this.now()
+          if (now - lastAt < 250) return
+          lastAt = now
+          // The source's own total when it has one, else the size the snapshot listed.
+          this.events.attachmentProgress({ provider: id, instance, key: id, id: attachmentId, read, total: total ?? expectedSize })
+        }
+        file = await this.call((signal) => ready.provider.attachment!(ready.settings, ready.credential, key, attachmentId, AbortSignal.any([signal, abort]), report), ATTACHMENT_TIMEOUT_MS)
+      } catch (error) {
+        if (error instanceof Rejection) throw error
+        throw sourceRejection(error)
+      }
+      check()
+      if (!file?.bytes?.byteLength) throw new Rejection('source-request-failed', 'the source returned an empty attachment')
+      if (file.bytes.byteLength > MAX_ATTACHMENT_BYTES) throw new Rejection('source-request-failed', 'the attachment is too large to download')
+      // Not stored. AttachmentStore is an image store: it inspects dimensions and re-encodes, and
+      // refuses anything that is not PNG/JPEG/GIF/WebP. A .rar belongs to no part of that model, and
+      // forcing it in would either fail or store a file whose metadata is a lie. The bytes are
+      // handed straight to the caller; `id` echoes the source's own handle so a retry is recognisable.
+      return { name: file.name || `attachment-${attachmentId}`, id: attachmentId, size: file.bytes.byteLength, base64: Buffer.from(file.bytes).toString('base64') }
     })
   }
 
@@ -709,7 +797,7 @@ export class SourceService {
     const note = lost > 0 ? `\n\n（还有 ${lost} 张图片没能保存）` : ''
     const text = typeof raw.markdown === 'string' ? raw.markdown : ''
     const markdown = text.slice(0, MAX_SNAPSHOT_LENGTH - note.length) + note
-    return { issue, snapshot: { markdown, fetchedAt: this.now(), ...(images ? { imagesFetchedAt: this.now() } : {}), ...(raw.commentState ? { commentState: raw.commentState } : {}), images: stored }, deferred: images ? 0 : Math.max(0, Math.floor(raw.imagesDeferred ?? 0)) }
+    return { issue, snapshot: { markdown, fetchedAt: this.now(), ...(images ? { imagesFetchedAt: this.now() } : {}), ...(raw.commentState ? { commentState: raw.commentState } : {}), images: stored, attachments: acceptAttachments(raw.attachments) }, deferred: images ? 0 : Math.max(0, Math.floor(raw.imagesDeferred ?? 0)) }
   }
 
   // Each image passes the same checks as one the user uploads; one that fails is counted, not fatal.

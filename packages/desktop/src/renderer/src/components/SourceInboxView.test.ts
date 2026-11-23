@@ -83,6 +83,28 @@ describe('source inbox', () => {
     expect(render()).not.toContain('>会话排查</button>')
   })
 
+  it('offers requirements only with the capability and ZenTao source', () => {
+    connect(['requirements'])
+    expect(render()).not.toContain('>进入需求</button>')
+    const current = inbox([issue('story-1')])
+    useCore.setState({
+      sources: [{ provider: 'zentao', name: '禅道', settings: [], instances: [{ instance: 'default', enabled: true, settings: {}, credential: { configured: true, source: 'store', account: null } }] }],
+      inboxes: { 'zentao/default': { ...current, provider: 'zentao' } }
+    })
+    expect(render()).toContain('>进入需求</button>')
+    expect(render()).toContain('>需求与方案</button>')
+    connect([])
+    expect(render()).not.toContain('>进入需求</button>')
+    expect(render()).not.toContain('>需求与方案</button>')
+  })
+
+  it('starts requirement analysis conservatively and resets it for ordinary drafts', () => {
+    openConversationDraft(['/code/app'], null, null, true)
+    expect(useCore.getState().conversationDraftAnalysis).toBe(true)
+    openConversationDraft()
+    expect(useCore.getState().conversationDraftAnalysis).toBe(false)
+  })
+
   it('opens the new-conversation page on the issue, with the projects asked for', () => {
     const picked = { provider: 'github', instance: 'default', key: '1', title: 'Bug 1', url: 'https://github.com/acme/app/issues/1', source: 'GitHub' }
     openConversationDraft(['/code/app'], picked)

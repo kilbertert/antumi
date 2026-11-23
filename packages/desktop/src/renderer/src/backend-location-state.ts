@@ -23,7 +23,7 @@ export function useBackendLocationFeed(): void {
 }
 
 export function useBackendLocationShown(): boolean {
-  return useBackendLocation((s) => s.state?.supported ?? false)
+  return useBackendLocation((s) => (s.state?.supported ?? false) || s.state?.remote != null)
 }
 
 export function dismissBackendLocationNotice(): void {
@@ -38,5 +38,6 @@ export function distroNotStarted(state: BackendLocationState | null): string | n
 }
 
 export function sameLocation(a: BackendLocation, b: BackendLocation): boolean {
-  return a.kind === 'local' ? b.kind === 'local' : b.kind === 'wsl' && a.distro === b.distro
+  if (a.kind === 'local' || a.kind === 'remote') return b.kind === a.kind
+  return b.kind === 'wsl' && a.distro === b.distro
 }

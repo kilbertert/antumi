@@ -4,7 +4,6 @@ import '@fontsource-variable/geist-mono/wght.css'
 import '@xterm/xterm/css/xterm.css'
 import './styles.css'
 import { App } from './App'
-import { PetPlayground } from './components/PetPlayground'
 import { startAppearance } from './appearance'
 import { startBackgroundRest } from './background-rest'
 import { startCodeFont } from './code-font'
@@ -28,21 +27,14 @@ import { startWorktreeUpdates } from './worktree-store'
 // the main window alone tells the user things, counts on the dock and keeps worktrees current.
 const popup = location.hash === '#request-popup'
 const panelKind = thisPanelKind()
-// The pet's playground (components/PetPlayground.tsx): the stage with a stand-in for the app, no core.
-const settingsPreview = import.meta.env.DEV && ['#pet-settings', '#settings'].includes(location.hash)
-const playground = location.hash === '#pet-playground' || settingsPreview
-if (settingsPreview) useCore.setState({ settingsOpen: true, settingsSection: location.hash === '#pet-settings' ? 'pet' : 'appearance' })
+const settingsPreview = import.meta.env.DEV && location.hash === '#settings'
+if (settingsPreview) useCore.setState({ settingsOpen: true, settingsSection: 'appearance' })
 
 startUiLanguage()
 followPreferences()
 
 // Outside React so StrictMode's double-mount can't start two loops.
-if (playground) {
-  if (new URLSearchParams(location.search).has('port')) startCoreConnection('requests')
-  startAppearance()
-  startBackgroundRest()
-  startCodeFont()
-} else if (popup) {
+if (popup) {
   document.documentElement.dataset.window = 'request-popup'
   followRequestPopup()
   startCoreConnection('requests')
@@ -74,7 +66,7 @@ if (!root) {
 }
 createRoot(root).render(
   <StrictMode>
-    {settingsPreview ? <div className="app"><SettingsPage /></div> : playground ? <PetPlayground /> : popup ? <RequestPopup /> : panelKind ? <PanelWindow kind={panelKind} /> : <App />}
+    {settingsPreview ? <div className="app"><SettingsPage /></div> : popup ? <RequestPopup /> : panelKind ? <PanelWindow kind={panelKind} /> : <App />}
     <ConfirmDialog />
   </StrictMode>
 )

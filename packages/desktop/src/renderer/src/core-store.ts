@@ -98,6 +98,9 @@ export type LoginState = {
 
 export type CoreState = {
   connection: ConnectionState
+  // Why core is unreachable when the main process knows (remote mode); null otherwise, so the
+  // status bar keeps its upstream hint.
+  coreProblem: string | null
   rpc: RpcConnection | null
   tasks: Record<string, Task>
   conversations: Record<string, Conversation>
@@ -107,6 +110,7 @@ export type CoreState = {
   selectedConversationId: string | null
   // The page a new conversation starts from while chats are the default (see ConversationDraft), and
   // whether it starts one agent or a group chat.
+  conversationDraftAnalysis?: boolean
   conversationDraft: boolean
   conversationDraftMode: DraftMode
   // What the page carries over when it switches between one agent and a group: what was written,
@@ -136,7 +140,7 @@ export type CoreState = {
   // The inbox issue the new conversation is to look into; null for an ordinary one.
   conversationDraftIssue: DraftIssue | null
   // A fresh settings snapshot; its key also keeps this composer's input separate from other drafts.
-  conversationDraftFrom: { key: string; title: string; configuration: ConversationConfiguration } | null
+  conversationDraftFrom: { key: string; title: string; configuration?: ConversationConfiguration } | null
   taskMemberConversationId: string | null
   selectedId: string | null
   view: TaskView
@@ -258,6 +262,7 @@ export type CoreState = {
 
 export const useCore = create<CoreState>()(() => ({
   connection: 'connecting',
+  coreProblem: null,
   rpc: null,
   tasks: {},
   conversations: {},
@@ -874,8 +879,8 @@ export type DraftIssue = { provider: string; instance: string; key: string; titl
 
 // `projects`: what the page starts with, as from a project's group; without, it starts with none.
 // `issue`: the inbox issue the conversation is opened to look into.
-export function openConversationDraft(projects?: readonly string[], issue: DraftIssue | null = null, from: CoreState['conversationDraftFrom'] = null): void {
-  useCore.setState({ selectedConversationId: null, section: 'conversations', settingsOpen: false, worktreesOpen: false, routinesOpen: false, overviewOpen: false, inboxOpen: false, conversationDraft: true, conversationDraftMode: 'single', conversationDraftCarry: null, conversationDraftProjects: projects ? { paths: [...projects] } : null, conversationDraftIssue: issue, conversationDraftFrom: from, discussionDraftFrom: null, draftProfileId: null })
+export function openConversationDraft(projects?: readonly string[], issue: DraftIssue | null = null, from: CoreState['conversationDraftFrom'] = null, analysis = false): void {
+  useCore.setState({ selectedConversationId: null, section: 'conversations', settingsOpen: false, worktreesOpen: false, routinesOpen: false, overviewOpen: false, inboxOpen: false, conversationDraft: true, conversationDraftMode: 'single', conversationDraftAnalysis: analysis, conversationDraftCarry: null, conversationDraftProjects: projects ? { paths: [...projects] } : null, conversationDraftIssue: issue, conversationDraftFrom: from, discussionDraftFrom: null, draftProfileId: null })
 }
 
 export type DraftMode = 'single' | 'group'
@@ -941,7 +946,7 @@ export function openDiscussionDraftWith(from: Discussion, text: string, format?:
 
 // The new page, set to a group chat. from: a group whose members, projects and options it starts with.
 export function openDiscussionDraft(from?: Discussion): void {
-  useCore.setState({ selectedConversationId: null, selectedDiscussionId: null, section: 'conversations', conversationDraft: true, conversationDraftMode: 'group', conversationDraftCarry: null, conversationDraftIssue: null, conversationDraftFrom: null, discussionDraftFrom: from ? { discussion: from } : null, draftProfileId: null, ...PAGES_CLOSED })
+  useCore.setState({ selectedConversationId: null, selectedDiscussionId: null, section: 'conversations', conversationDraft: true, conversationDraftMode: 'group', conversationDraftAnalysis: false, conversationDraftCarry: null, conversationDraftIssue: null, conversationDraftFrom: null, discussionDraftFrom: from ? { discussion: from } : null, draftProfileId: null, ...PAGES_CLOSED })
 }
 
 // Whether core runs group chats (discussions.*).
@@ -1586,6 +1591,10 @@ export function startCoreConnection(scope: 'app' | 'requests' = 'app'): void {
       const endpoint = await resolveCoreEndpoint()
       if (!endpoint) {
         useCore.setState({ connection: 'waiting-for-core', rpc: null })
+        // In remote mode there is no local core coming, so the generic "start the dev server"
+        // hint is actively wrong. Read the main process's own reason when it has one.
+        const reason = await window.antumi?.getRemoteProblem?.()
+        useCore.setState({ coreProblem: typeof reason === 'string' && reason.length > 0 ? reason : null })
         await sleep(RETRY_MS)
         continue
       }

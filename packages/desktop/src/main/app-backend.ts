@@ -2,17 +2,20 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CoreEndpoint } from '@antumi/protocol'
 import { antumiPaths, readCoreEndpoint } from '@antumi/protocol/node'
-import type { BackendLocation, BackendLocationState, WslBackendProblem } from '../shared/backend-location'
-import { ensureBackend, replaceOldDaemon } from './backend'
+import type { BackendLocation, BackendLocationState, BackendProblem } from '../shared/backend-location'
+import { ensureBackend, replaceOldDaemon, stopBackendForInstall, type BackendStop } from './backend'
 import { readBackendLocation, writeBackendLocation } from './backend-location'
+import { readRemoteConfig, RemoteSession } from './remote-core'
 import type { WslBackendArchive } from './wsl/wsl-backend'
 import { listDistros } from './wsl/wsl-distros'
 import { WslSession } from './wsl/wsl-session'
 import { z } from 'zod'
 
-// The backend this app talks to, wherever the user chose to run it: on this machine as ever, or in
-// a WSL distro (docs/WSL.md), with this machine's as what it falls back to when that one will not
-// start. The rest of main asks here rather than which of the two it is.
+// The backend this app talks to, wherever the user chose to run it: on this machine as ever, in a
+// WSL distro (docs/WSL.md), or on a remote host over ssh (docs/REMOTE-CORE.md). A distro that will
+// not start leaves the app on this machine's; a remote that will not is a problem to show, never
+// a cue to run this machine's — the user's work belongs on the machine they named. The rest of
+// main asks here rather than which of the three it is.
 
 export type AppBackendOptions = {
   // The user's choice, beside the app's other preferences.
@@ -29,8 +32,8 @@ const Manifest = z.object({ file: z.string(), sha256: z.string().regex(/^[a-f0-9
 
 export class AppBackend {
   private chosen: BackendLocation = { kind: 'local' }
-  private session: WslSession | null = null
-  private problem: WslBackendProblem | null = null
+  private session: WslSession | RemoteSession | null = null
+  private problem: BackendProblem | null = null
   private decided: Promise<void> | null = null
   private started: Promise<void> | null = null
 
@@ -49,16 +52,39 @@ export class AppBackend {
   }
 
   // Starts the backend where the user chose, once. One in WSL that will not start leaves the app
-  // on this machine's, and `state` saying why.
+  // on this machine's, and `state` saying why. One remote never reaches that fallback: silently
+  // serving this machine's core is the failure remote mode exists to prevent.
   start(): Promise<void> {
-    this.started ??= this.decide().then(() => (this.session ? undefined : ensureBackend()))
+    this.started ??= this.decide().then(() => {
+      if (this.session || this.chosen.kind === 'remote') return undefined
+      return ensureBackend()
+    })
     return this.started
   }
 
-  // Which backend this is: the one in WSL once it runs, else this machine's.
+  // Which backend this is: the one in WSL once it runs, the remote one once its link is up, else
+  // this machine's.
   private decide(): Promise<void> {
     this.decided ??= (async () => {
       this.chosen = await readBackendLocation(this.options.locationFile)
+      if (this.chosen.kind === 'remote') {
+        const remote = readRemoteConfig()
+        if (remote.kind === 'on') {
+          const session = new RemoteSession(remote.config)
+          this.problem = await session.start()
+          if (!this.problem) {
+            this.session = session
+            return
+          }
+          console.error(`[antumi] the remote backend did not start: ${JSON.stringify(this.problem)}`)
+          session.stop()
+        } else {
+          // Half-configured is an error to show, not "off": remote was chosen.
+          this.problem = { kind: 'remote-config', detail: remote.kind === 'broken' ? remote.problem : 'remote.json is missing or unreadable' }
+          console.error(`[antumi] remote is chosen but remote.json is not usable: ${this.problem.detail}`)
+        }
+        return
+      }
       const archive = this.chosen.kind === 'wsl' ? await this.archive() : null
       if (this.chosen.kind !== 'wsl' || !archive) return
       const session = new WslSession({ distro: this.chosen.distro, version: this.options.version, archive })
@@ -75,25 +101,54 @@ export class AppBackend {
 
   // Re-read on every call: core rewrites its endpoint with a new port/token on restart. Nothing
   // until it is known which backend this is: the renderer must not find this machine's core while
-  // the one in WSL is still starting.
+  // the chosen one is still starting — and never when remote was chosen and did not come up.
   async coreEndpoint(): Promise<CoreEndpoint | null> {
     await this.decide()
-    return this.session ? this.session.endpoint() : readCoreEndpoint()
+    if (this.session) return this.session.endpoint()
+    if (this.chosen.kind === 'remote') return null
+    return readCoreEndpoint()
   }
 
   async replaceOldDaemon(): Promise<void> {
     await this.decide()
-    await (this.session ? this.session.replaceOldDaemon() : replaceOldDaemon())
+    if (this.session) return this.session.replaceOldDaemon()
+    if (this.chosen.kind === 'remote') return
+    return replaceOldDaemon()
   }
 
   // Where the browser host says it listens. Core in WSL is told through the tunnel instead, and a
-  // core of this machine, left running from before, must not find the host as its own.
+  // core of this machine, left running from before, must not find the host as its own — least of
+  // all when remote was chosen, where no local core should answer at all.
   browserHostFile(): string {
-    return this.session ? this.options.privateHostFile : antumiPaths().browserHostFile
+    return this.session || this.chosen.kind === 'remote' ? this.options.privateHostFile : antumiPaths().browserHostFile
   }
 
   browserHostStarted(host: { port: number; token: string }): void {
     this.session?.setBrowserHost(host)
+  }
+
+  // Whether the remote host runs the backend: its files are core's, not this machine's to open.
+  isRemote(): boolean {
+    return this.chosen.kind === 'remote'
+  }
+
+  // Why a chosen remote is not up, for the banner that would otherwise just say "waiting for
+  // core"; null once it is, and always for the other locations.
+  remoteProblem(): string | null {
+    const problem = this.problem
+    return this.chosen.kind === 'remote' && problem && (problem.kind === 'remote-config' || problem.kind === 'remote-link') ? problem.detail : null
+  }
+
+  // What the installer needs stopped: this machine's daemon and core — or, when the backend is
+  // remote, only the link to it, which is this app's own child. The far side is untouched either
+  // way: replacing this app's files cannot disturb it.
+  async stopForInstall(): Promise<BackendStop> {
+    await this.decide()
+    if (this.session instanceof RemoteSession) {
+      this.session.stop()
+      return { stopped: true }
+    }
+    return stopBackendForInstall()
   }
 
   // A path chosen on this machine as core names it; null for one core cannot reach.
@@ -116,11 +171,15 @@ export class AppBackend {
     await this.decide()
     const supported = (await this.archive()) !== null
     const listed = supported ? await listDistros() : null
+    const remote = readRemoteConfig()
     return {
       supported,
       chosen: this.chosen,
-      running: this.session ? 'wsl' : 'local',
+      // A remote that would not come up still reads remote: nothing else is serving, and the
+      // problem says so — unlike WSL there is no fallback to report.
+      running: this.session ? (this.session instanceof WslSession ? 'wsl' : 'remote') : this.chosen.kind === 'remote' ? 'remote' : 'local',
       distros: listed?.status === 'ok' ? listed.distros.map(({ name, version, isDefault }) => ({ name, version, isDefault })) : supported ? null : [],
+      remote: remote.kind === 'off' ? null : remote.kind === 'on' ? { host: remote.config.sshHost, error: null } : { host: null, error: remote.problem },
       problem: this.problem
     }
   }
@@ -131,7 +190,7 @@ export class AppBackend {
     this.chosen = location
   }
 
-  // Lets go of the tunnel to a backend in WSL; daemon and core run on wherever they are.
+  // Lets go of the tunnel to a backend in WSL or over ssh; daemon and core run on wherever they are.
   stop(): void {
     this.session?.stop()
   }

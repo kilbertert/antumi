@@ -1,3 +1,4 @@
+import { type RequirementService } from './requirement-service'
 import { homedir } from 'node:os'
 import type { AgentProfileService } from './agent-profile-service'
 import type { AgentCliMaintenance } from './agent-cli-maintenance'
@@ -13,14 +14,13 @@ import type { AttachmentStore } from './attachment-store'
 import type { AttachmentUploads } from './attachment-uploads'
 import type { BrowserService } from './browser-service'
 import type { SessionHost } from './daemon-client'
-import { findFiles, searchFiles } from './file-search'
+import { findFiles, searchFiles, searchKnowledgeFiles } from './file-search'
 import { ConversationFiles, fileScope } from './conversation-files'
 import { readCodexVisualization } from './agents/codex/codex-visualizations'
 import type { ProjectRegistry } from './project-registry'
 import { Rejection } from './rejection'
 import { localSkillFolders } from './local-skills'
 import type { PluginService } from './plugin-service'
-import type { PetLibrary } from './pet-library'
 import type { SourceUpdates } from './source-updates'
 import type { SourceService } from './source-service'
 import type { Connection, RpcHandlers } from './rpc-server'
@@ -114,7 +114,6 @@ export function createRpcHandlers(
   cliMaintenance?: AgentCliMaintenance,
   analytics?: UsageAnalytics,
   automation?: UsageAutomation,
-  pets?: PetLibrary,
   projectStar?: ProjectStar,
   profiles?: AgentProfileService,
   bookmarks?: BookmarkStore,
@@ -123,13 +122,18 @@ export function createRpcHandlers(
   pullRequestStore?: { store: PullRequestStore; changed: (taskId: string, links: PullRequestLink[]) => void; ready?: (service: PullRequestService) => void },
   browserSites?: BrowserSiteStore,
   mobile?: MobileService,
-  channels?: ChannelService
+  channels?: ChannelService,
+  requirements?: RequirementService
 ): RpcHandlers {
+  const requirementService = () => {
+    if (!requirements) throw new Rejection('requirements-unavailable')
+    return requirements
+  }
   const mobileService = (): MobileService => {
     if (!mobile) throw new Rejection('mobile-unavailable')
     return mobile
   }
-  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'pets' || Boolean(pets)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations', 'plugin-packages', 'plugin-pages'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
+  const hello = () => ({ protocolVersion: PROTOCOL_VERSION, serverVersion: packageJson.version, home: { path: homedir(), windows: process.platform === 'win32' }, features: CORE_FEATURES.filter((feature) => (!['requirements', 'requirement-prototypes'].includes(feature) || Boolean(requirements)) && (feature !== 'requirement-evidence' || Boolean(requirements?.evidenceSupported)) && (feature !== 'requirement-knowledge-evidence' || Boolean(requirements?.knowledgeEvidenceSupported)) && (feature !== 'requirement-project-iterations' || Boolean(requirements?.projectIterationsSupported)) && (feature !== 'agent-profiles' || Boolean(profiles)) && (feature !== 'project-star' || Boolean(projectStar)) && (feature !== 'bookmarks' || Boolean(bookmarks)) && (feature !== 'browser-history' || Boolean(browserHistory)) && (feature !== 'browser-sites' || Boolean(browserSites)) && (feature !== 'squads' || Boolean(squads)) && (!['plugins', 'plugin-recommendations', 'plugin-packages', 'plugin-pages'].includes(feature) || Boolean(plugins)) && (!['skills-library', 'skills-search', 'skills-activation'].includes(feature) || Boolean(skills)) && (feature !== 'mcp-servers' || Boolean(mcpServers)) && (feature !== 'small-model-stats' || Boolean(smallModels)) && (!['model-providers', 'model-provider-models'].includes(feature) || Boolean(modelProviders)) && (feature !== 'agent-accounts' || Boolean(accounts)) && (feature !== 'pull-requests' || Boolean(pullRequests)) && (feature !== 'mobile' || Boolean(mobile)) && (!['channels', 'channel-readiness', 'channel-tasks'].includes(feature) || Boolean(channels)) && (feature !== 'attachment-sweep' || Boolean(attachments.sweeper))) })
   const channelService = (): ChannelService => {
     if (!channels) throw new Rejection('channels-unavailable')
     return channels
@@ -160,10 +164,6 @@ export function createRpcHandlers(
   const historyStore = (): BrowserHistoryStore => {
     if (!browserHistory) throw new Rejection('browser-history-unavailable')
     return browserHistory
-  }
-  const petLibrary = (): PetLibrary => {
-    if (!pets) throw new Rejection('pets-unavailable')
-    return pets
   }
   const maintenance = (): AgentCliMaintenance => {
     if (!cliMaintenance) throw new Rejection('agent-cli-maintenance-unavailable')
@@ -368,11 +368,6 @@ export function createRpcHandlers(
       }, conversationId ? conversations.quickProvider(conversationId) : undefined)
       return { message: cleanCommitMessage(answer.text), model: answer.model }
     },
-    'pets.list': ({ refresh }) => petLibrary().list(refresh),
-    'pets.install': ({ id }) => petLibrary().install(id),
-    'pets.cancel': ({ id }) => { petLibrary().cancel(id); return OK },
-    'pets.remove': ({ id }) => petLibrary().remove(id),
-    'pets.read': ({ id }) => petLibrary().read(id),
     'system.hello': ({ client }, connection) => {
       if (client?.kind === 'mobile') mobileService().authorize(connection, client.deviceId)
       // From here on the connection may only run that conversation's tools.
@@ -497,6 +492,22 @@ export function createRpcHandlers(
     'system.installAgentCli': ({ agent }) => cliInstaller.install(agent),
     'tasks.list': ({ status }) => service.list(status),
     'tasks.get': ({ id }) => service.get(id),
+    'requirements.list': () => requirementService().list(),
+    'requirements.get': ({ id }) => requirementService().get(id),
+    'requirements.import': (params) => requirementService().import(params),
+    'requirements.revise': (params) => requirementService().revise(params),
+    'requirements.solution': (params) => requirementService().solution(params),
+    'requirements.review': (params) => requirementService().review(params),
+    'requirements.handoff': (params) => requirementService().handoff(params),
+    'requirements.context': (params) => requirementService().context(params),
+    'requirements.searchEvidence': (params) => requirementService().searchEvidence(params, searchFiles),
+    'requirements.readEvidence': (params) => requirementService().readEvidence(params),
+    'requirements.searchKnowledge': (params) => requirementService().searchKnowledge(params, searchKnowledgeFiles),
+    'requirements.readKnowledge': (params) => requirementService().readKnowledge(params),
+    'requirements.projects': () => requirementService().projects(),
+    'requirements.saveProject': (params) => requirementService().saveProject(params),
+    'requirements.archiveProject': ({ id, archived }) => requirementService().archiveProject(id, archived),
+    'requirements.saveIteration': (params) => requirementService().saveIteration(params),
     'tasks.create': (params, connection) => {
       // A squad is set up on the computer, with the agent profiles it runs.
       if (connection.mobile && params.squadId) throw new Rejection('mobile-not-allowed', 'squads are set up on the computer')
@@ -536,14 +547,14 @@ export function createRpcHandlers(
     'conversations.get': ({ id }) => conversations.get(id),
     'conversations.configuration': ({ id }) => conversations.configuration(id),
     'conversations.helper': ({ id }) => conversations.helper(id),
-    'conversations.create': ({ agent, projectPaths, worktree, branch, allowBypass, permissionMode, model, effort, deferStart, helperOf, modelProvider, profileId, account }, connection) => {
+    'conversations.create': ({ agent, projectPaths, worktree, branch, allowBypass, permissionMode, model, effort, deferStart, helperOf, modelProvider, profileId, account, knowledgeBase }, connection) => {
       if (connection.mobile && (helperOf || profileId)) throw new Rejection('mobile-project-not-recent', 'pick a recent project')
       requireRecentForPhone(connection, projectPaths)
       const profile = profileId ? profileService().get(profileId) : undefined
       if (profile && (profile.agent !== agent || helperOf)) throw new Rejection('invalid-params', '智能体配置与会话不匹配')
       return conversations.create(agent, projectPaths, allowBypass, { permissionMode: profile?.capability === 'readOnly' ? agentDescriptor(agent).readOnlyMode : permissionMode,
         model: model ?? profile?.model ?? undefined, effort: effort ?? profile?.effort ?? undefined, worktree, branch, deferStart, helperOf,
-        modelProvider: profile?.modelProvider ?? modelProvider, profile, ...(account ? { account } : {}) })
+        modelProvider: profile?.modelProvider ?? modelProvider, profile, ...(account ? { account } : {}), knowledgeBase })
     },
     'conversations.chatCatalog': ({ agent, modelProvider }) => conversations.chatCatalog(agent, modelProvider),
     'conversations.chatCatalogProblem': ({ agent }) => conversations.chatCatalogProblem(agent),
@@ -901,6 +912,10 @@ export function createRpcHandlers(
     'sources.refresh': ({ provider, instance }) => sources.refresh(provider, instance),
     'sources.issue': ({ provider, instance, key, images }) => sources.issue(provider, instance, key, images),
     'sources.issueComments': ({ provider, instance, key, options }) => sources.issueComments(provider, instance, key, options),
+    'sources.attachment': ({ provider, instance, key, attachmentId, expectedSize, binding }) => {
+      if (binding && sources.requirementBinding(provider, instance) !== binding) throw new Rejection('requirement-source-changed', '禅道站点已更换，不能从新站点下载旧需求附件')
+      return sources.attachment(provider, instance, key, attachmentId, expectedSize ?? null)
+    },
     'sources.import': ({ provider, instance, key, agent }) => sources.import(provider, instance, key, agent ?? null),
     'sources.investigate': ({ provider, instance, key, ...options }) => sources.investigate(provider, instance, key, options),
     'sources.retryInvestigation': ({ id }) => sources.retryInvestigation(id),

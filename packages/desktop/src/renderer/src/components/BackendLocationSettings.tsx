@@ -1,5 +1,5 @@
 import { useState, type ReactElement, type ReactNode } from 'react'
-import type { BackendLocation, BackendLocationState, WslBackendProblem } from '../../../shared/backend-location'
+import type { BackendLocation, BackendLocationState, BackendProblem } from '../../../shared/backend-location'
 import { readBackendLocation, sameLocation, useBackendLocation } from '../backend-location-state'
 import { askConfirm } from '../confirm-dialog'
 import { setBackendLocation } from '../desktop-bridge'
@@ -9,21 +9,26 @@ import { CopyButton } from './CopyButton'
 import { WarningIcon } from './icons'
 import { SettingsRow } from './SettingsControls'
 
-// 设置 → 后端位置, on a Windows build that can run its backend in WSL (docs/WSL.md): where it runs,
-// where it should, and what to do when the distro would not take it.
+// 设置 → 后端位置, where the backend runs (docs/WSL.md, docs/REMOTE-CORE.md): this machine, a WSL
+// distro on a Windows build that carries one, or a remote host over ssh — and what to do when the
+// chosen place would not take it.
 
 const LOCAL = 'local'
+const REMOTE = 'remote'
 const WSL_PREFIX = 'wsl:'
 
 function valueOf(location: BackendLocation): string {
-  return location.kind === 'local' ? LOCAL : `${WSL_PREFIX}${location.distro}`
+  if (location.kind === 'wsl') return `${WSL_PREFIX}${location.distro}`
+  return location.kind
 }
 
 function locationOf(value: string): BackendLocation {
+  if (value === REMOTE) return { kind: 'remote' }
   return value.startsWith(WSL_PREFIX) ? { kind: 'wsl', distro: value.slice(WSL_PREFIX.length) } : { kind: 'local' }
 }
 
-function locationLabel(location: BackendLocation): string {
+function locationLabel(location: BackendLocation, remoteHost: string | null): string {
+  if (location.kind === 'remote') return remoteHost ? t('BackendLocation.remote', { host: remoteHost }) : t('BackendLocation.remoteUnconfigured')
   return location.kind === 'local' ? t('BackendLocation.local') : t('BackendLocation.wsl', { distro: location.distro })
 }
 
@@ -41,6 +46,16 @@ export function backendLocationOptions(state: BackendLocationState): PickerOptio
     // The chosen one stays shown when wsl.exe no longer lists it, or would not say.
     ...(chosen !== null && !distros.some((distro) => distro.name === chosen)
       ? [{ value: `${WSL_PREFIX}${chosen}`, label: t('BackendLocation.wsl', { distro: chosen }), description: state.distros ? t('BackendLocation.distroMissing') : null, disabled: true }]
+      : []),
+    // Remote is a choice once remote.json says where: its ssh host names it, a broken file is said
+    // rather than offered.
+    ...(state.remote !== null
+      ? [{
+          value: REMOTE,
+          label: state.remote.host ? t('BackendLocation.remote', { host: state.remote.host }) : t('BackendLocation.remoteUnconfigured'),
+          description: state.remote.error ?? t('BackendLocation.remoteDescription'),
+          disabled: state.remote.error !== null && state.chosen.kind !== 'remote'
+        }]
       : [])
   ]
 }
@@ -73,8 +88,12 @@ function NodeFix() {
 
 // What went wrong, as a title, and what to do about it. `distro` is the chosen one, which most
 // problems are about without naming it.
-export function problemContent(problem: WslBackendProblem, distro: string): { title: string; body: ReactNode; retry: boolean } {
+export function problemContent(problem: BackendProblem, distro: string): { title: string; body: ReactNode; retry: boolean } {
   switch (problem.kind) {
+    case 'remote-config':
+      return { title: t('BackendLocation.problemRemoteConfig'), body: <p>{t('BackendLocation.problemRemoteConfigFix')} <code>remote.json</code></p>, retry: true }
+    case 'remote-link':
+      return { title: t('BackendLocation.problemRemoteLink'), body: <><p>{t('BackendLocation.problemRemoteLinkFix')}</p><Detail text={problem.detail} /></>, retry: true }
     case 'wsl-unavailable':
       return { title: t('BackendLocation.problemWslUnavailable'), body: <><p>{t('BackendLocation.problemWslUnavailableFix')}</p><Command command="wsl --install" /></>, retry: true }
     case 'wsl-unknown':
@@ -103,14 +122,14 @@ export function problemContent(problem: WslBackendProblem, distro: string): { ti
 // The other place has its own tasks, conversations and settings, and the app restarts at once:
 // neither is something to find out after the fact.
 export function confirmSwitch(location: BackendLocation): Promise<boolean> {
-  const question = location.kind === 'local' ? t('BackendLocation.confirmLocal') : t('BackendLocation.confirmWsl', { distro: location.distro })
+  const question = location.kind === 'local' ? t('BackendLocation.confirmLocal') : location.kind === 'remote' ? t('BackendLocation.confirmRemote') : t('BackendLocation.confirmWsl', { distro: location.distro })
   return askConfirm({ message: `${question} ${t('BackendLocation.confirmBody')}`, confirm: t('BackendLocation.confirmAction') })
 }
 
-// Empty where the app cannot run its backend in WSL; the page lists the section only where it can.
+// Empty where there is no choice to make: no WSL support, and no remote.json either.
 export function BackendLocationSettings(): ReactElement {
   const state = useBackendLocation((s) => s.state)
-  return state?.supported ? <BackendLocationRows state={state} /> : <></>
+  return state !== null && (state.supported || state.remote !== null) ? <BackendLocationRows state={state} /> : <></>
 }
 
 function BackendLocationRows({ state }: { state: BackendLocationState }) {
@@ -134,7 +153,9 @@ function BackendLocationRows({ state }: { state: BackendLocationState }) {
 
   const chosenDistro = state.chosen.kind === 'wsl' ? state.chosen.distro : null
   const fellBack = chosenDistro !== null && state.running === 'local'
-  const problem = state.problem && chosenDistro !== null ? problemContent(state.problem, chosenDistro) : null
+  // A remote that did not come up serves nothing at all: it shows as down, never as this machine's.
+  const remoteDown = state.chosen.kind === 'remote' && state.problem !== null
+  const problem = state.problem && (chosenDistro !== null || state.chosen.kind === 'remote') ? problemContent(state.problem, chosenDistro ?? '') : null
   const recheck = (
     <button type="button" className="button" disabled={reading} onClick={() => void readBackendLocation()}>
       {reading ? t('BackendLocation.rechecking') : t('BackendLocation.recheck')}
@@ -149,7 +170,7 @@ function BackendLocationRows({ state }: { state: BackendLocationState }) {
           <ChatPicker
             label={t('BackendLocation.choose')}
             value={valueOf(state.chosen)}
-            placeholder={locationLabel(state.chosen)}
+            placeholder={locationLabel(state.chosen, state.remote?.host ?? null)}
             options={backendLocationOptions(state)}
             disabled={switching}
             size="large"
@@ -169,11 +190,11 @@ function BackendLocationRows({ state }: { state: BackendLocationState }) {
       )}
       <SettingsRow
         label={t('BackendLocation.running')}
-        description={fellBack ? t('BackendLocation.fellBack', { distro: chosenDistro }) : undefined}
+        description={fellBack ? t('BackendLocation.fellBack', { distro: chosenDistro }) : remoteDown ? t('BackendLocation.remoteDown') : undefined}
         control={() => (
-          <span className="backend-location-running" data-fell-back={fellBack || undefined}>
-            {fellBack && <WarningIcon />}
-            {state.running === 'wsl' && chosenDistro !== null ? locationLabel(state.chosen) : t('BackendLocation.local')}
+          <span className="backend-location-running" data-fell-back={fellBack || remoteDown || undefined}>
+            {(fellBack || remoteDown) && <WarningIcon />}
+            {state.running === 'local' ? t('BackendLocation.local') : locationLabel(state.chosen, state.remote?.host ?? null)}
           </span>
         )}
       />
@@ -193,7 +214,7 @@ function BackendLocationRows({ state }: { state: BackendLocationState }) {
           {failed ? t('BackendLocation.switchFailed') : t('BackendLocation.restarting')}
         </p>
       )}
-      <p className="backend-location-block">{t('BackendLocation.notYet')}</p>
+      <p className="backend-location-block">{state.chosen.kind === 'remote' ? t('BackendLocation.notYetRemote') : t('BackendLocation.notYet')}</p>
     </>
   )
 }

@@ -8,6 +8,7 @@ import { defaultAgent } from '../default-agent'
 import { sourceProblemText } from '../labels'
 import { activeInboxes, inboxKey, inboxTab, investigationProjects, type ActiveInbox } from '../source-inboxes'
 import { CloseIcon, GearIcon, InboxIcon, RefreshIcon } from './icons'
+import { RequirementWorkspace } from './RequirementWorkspace'
 import { InboxIssueDetail } from './InboxIssueDetail'
 
 const clock = (ms: number) =>
@@ -83,6 +84,12 @@ function InboxSection({
   const investigateSupported = useSourceInvestigateSupported()
   const previewSupported = useCore((s) => s.rpc?.features.includes('source-issue-preview') ?? false)
   const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [requirementId, setRequirementId] = useState<string | null>(null)
+  const requirementsSupported = useCore((s) => s.rpc?.features.includes('requirements') ?? false)
+  const openRequirement = (key: string) => act(key, async () => {
+    const requirement = await perform((rpc) => rpc.call('requirements.import', { ...target, key }))
+    if (requirement) setRequirementId(requirement.id)
+  })
   const [history, setHistory] = useState(false)
   const [showDismissed, setShowDismissed] = useState(false)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
@@ -171,6 +178,7 @@ function InboxSection({
                   const conversationId = lookedInto(issue)
                   return (
                     <IssueRow key={issue.key} issue={issue} name={name} busy={busyKey === issue.key} investigating={conversationId !== null} selected={selectedKey === issue.key} panelId={panelId} onView={previewSupported ? (button) => view(issue, button) : undefined}>
+                      {requirementsSupported && inbox.provider === 'zentao' && <button type="button" className="button" disabled={busyKey !== null} onClick={() => void openRequirement(issue.key)}>{t('Requirements.open')}</button>}
                       {conversationId && (
                         <button type="button" className={previewSupported ? 'button' : 'button primary'} onClick={() => selectConversation(conversationId)}>{t('SourceInboxView.viewConversation')}</button>
                       )}
@@ -216,6 +224,7 @@ function InboxSection({
           {inbox.dismissed.some((issue) => issue.key === selectedIssue.key)
             ? <button type="button" className="button" disabled={busyKey !== null} onClick={() => void restore(selectedIssue.key)}>{t('SourceInboxView.restore')}</button>
             : <>
+              {requirementsSupported && inbox.provider === 'zentao' && <button type="button" className="button" disabled={busyKey !== null} onClick={() => void openRequirement(selectedIssue.key)}>{t('Requirements.open')}</button>}
               <span className="inbox-issue-footer-hint">{t('InboxIssueDetail.footerHint')}</span>
               <button type="button" className="button" disabled={busyKey !== null} onClick={() => void importIssue(selectedIssue.key)}>{t('SourceInboxView.importTask')}</button>
               {selectedConversationId
@@ -224,6 +233,7 @@ function InboxSection({
             </>}
         </InboxIssueDetail>}
       </div>
+      {requirementId && <RequirementWorkspace initialId={requirementId} onClose={() => setRequirementId(null)} />}
       {history && <AutoInvestigationHistory provider={inbox.provider} instance={inbox.instance} onClose={() => setHistory(false)} />}
     </section>
   )
@@ -232,11 +242,15 @@ function InboxSection({
 // Every task source that is set up and signed in: one section, or a tab each once there are two.
 // A page of its own, opened from the sidebar, so it closes as the overview does.
 function InboxHeader() {
+  const supported = useCore((s) => s.rpc?.features.includes('requirements') ?? false)
+  const [open, setOpen] = useState(false)
   return (
     <header className="worktrees-header">
       <div className="worktrees-heading">
         <h2>{t('InboxEntry.inbox_1125')}</h2>
         <p className="muted">{t('SourceInboxView.issuesSyncedFromTaskSourcesImportAsTasks')}</p>
+        {supported && <button type="button" className="button" onClick={() => setOpen(true)}>{t('Requirements.title')}</button>}
+        {open && <RequirementWorkspace initialId={null} onClose={() => setOpen(false)} />}
       </div>
       <button type="button" className="tool-button" aria-label={t('BackdropPicker.close')} data-tooltip={t('BackdropPicker.close')} onClick={() => setInboxOpen(false)}>
         <CloseIcon />

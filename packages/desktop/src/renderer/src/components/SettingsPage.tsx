@@ -70,7 +70,6 @@ import { SupportSettings } from './SupportSettings'
 import { ProjectConfigDialog, projectConfigSummary } from './ProjectConfigDialog'
 import { useOccludesBrowser } from '../browser-occlusion'
 import { UpdateSettings } from './UpdateNotice'
-import { PetSettings } from './PetSettings'
 import { AppearanceSettings } from './AppearanceSettings'
 import { KeyboardShortcutSettings } from './KeyboardShortcutSettings'
 import './settings-page.css'
@@ -607,16 +606,6 @@ const SECTIONS: readonly Section[] = localized(() => ([
     keywords: [t('MarkdownTheme.reading'), 'Markdown', 'md', t('MarkdownTheme.title'), 'language', 'locale', 'English', '简体中文', '语言', t('language.interfaceLanguage'), t('SettingsPage.theme'), t('SettingsPage.light'), t('SettingsPage.dark'), t('SettingsPage.system'), t('SettingsPage.colors'), t('SettingsPage.palette'), t('SettingsPage.terminal'), t('SettingsPage.code'), t('SettingsPage.fontSize'), t('SettingsPage.font'), t('SettingsPage.lineHeight'), t('SettingsPage.prompt'), 'zsh', t('SettingsPage.chat'), t('SettingsPage.width'), t('SettingsPage.fullWidth'), t('FileSource.fold'), t('ModelBreakdown.turns'), t('SettingsPage.worked'), t('SettingsPage.chineseFont'), t('SettingsControls.resetToDefault_1523'), t('CjkFontPicker.default')],
     Icon: ContrastIcon,
     Body: AppearanceSettings,
-    grouped: true
-  },
-  {
-    id: 'pet',
-    group: t('SettingsPage.interface'),
-    title: t('Pet.title'),
-    description: t('Pet.description'),
-    keywords: ['pet', 'pets', 'mascot', 'moss', 'zip', 'clay', '宠物', '蚂蚁', '吉祥物', '毛毡', '软陶', '漫画', 'custom', 'sprite', '自定义', '素材', '规范', t('Pet.size'), t('Pet.activity'), t('Pet.createYourOwn')],
-    Icon: SparkIcon,
-    Body: PetSettings,
     grouped: true
   },
   {

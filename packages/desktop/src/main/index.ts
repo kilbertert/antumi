@@ -4,10 +4,11 @@ import { spawn } from 'node:child_process'
 import { dirname, extname, isAbsolute, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, protocol, screen, session, shell, type OpenDialogOptions, type WebContents } from 'electron'
 import { z } from 'zod'
-import { PLUGIN_PAGE_SCHEME, PluginPageFiles, resolveUiLocale, UiLocale } from '@antumi/protocol'
+import { connectRpc, coreUrl, PLUGIN_PAGE_SCHEME, PluginPageFiles, resolveUiLocale, UiLocale } from '@antumi/protocol'
 import { applicationMenu } from './application-menu'
 import { ShortcutAction, ShortcutSettings } from '../shared/keyboard-shortcuts'
-import { ensureBackend, stopBackendForInstall } from './backend'
+import { readCoreEndpoint } from '@antumi/protocol/node'
+import { ensureBackend } from './backend'
 import { AppBackend } from './app-backend'
 import { BackendLocation } from '../shared/backend-location'
 import { popupWindowOptions, RequestPopup } from './request-popup'
@@ -74,11 +75,46 @@ const PREVIEW_POLICY = [
   "base-uri 'none'", "form-action 'none'"
 ].join('; ')
 
+// The same URL, read on the far side: core owns that filesystem, and files.read is the call the
+// chat already trusts for text. One connection is kept and reopened on failure, because core
+// restarts change the port and token in core.json.
+let previewRpc: { url: string; connection: Awaited<ReturnType<typeof connectRpc>> } | null = null
+async function remotePreviewRpc() {
+  const endpoint = await readCoreEndpoint()
+  if (!endpoint) return null
+  const url = coreUrl(endpoint)
+  if (previewRpc?.url === url) return previewRpc.connection
+  const connection = await connectRpc(url)
+  previewRpc = { url, connection }
+  return connection
+}
+
+async function serveRemotePreview(path: string): Promise<Response> {
+  try {
+    const rpc = await remotePreviewRpc()
+    if (!rpc) return new Response('not found', { status: 404 })
+    // The file's own folder is the root it is allowed from; a path outside it is refused by core.
+    const roots = [dirname(path)]
+    const read = await rpc.call('files.read', { roots, path })
+    if (read.kind !== 'text') return new Response('not found', { status: 404 })
+    const type = PREVIEW_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
+    // Only text arrives this way; an image extension would be mislabelled as text, so say so.
+    if (!type.startsWith('text/') && type !== 'application/json' && type !== 'image/svg+xml') return new Response('not found', { status: 404 })
+    const content = type.startsWith('text/html') ? previewHtml(read.text) : read.text
+    return new Response(content, { headers: { 'content-type': type, 'content-security-policy': PREVIEW_POLICY, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } })
+  } catch {
+    return new Response('not found', { status: 404 })
+  }
+}
+
 async function servePreview(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const named = decodeURIComponent(url.pathname)
   // A Windows path comes as /C:/x (see urlPath in the renderer).
   const spelled = process.platform === 'win32' && /^\/[a-zA-Z]:\//.test(named) ? named.slice(1) : named
+  // A remote backend's files are not on this machine; they are read through core instead (the
+  // binary side of the gap is docs/REMOTE-CORE.md §4.4).
+  if (backend.isRemote()) return serveRemotePreview(spelled)
   // A file of a backend in WSL is read where this machine reaches it.
   const path = backend.fromBackendPath(spelled)
   if (url.host !== 'file' || !path || !isAbsolute(path)) return new Response('not found', { status: 404 })
@@ -368,6 +404,9 @@ ipcMain.handle('antumi:plugin-page-remove', (event, url: unknown) => {
 
 ipcMain.handle('antumi:core-endpoint', () => backend.coreEndpoint())
 
+// Remote mode's failure is not a local core the user can start, so it has to say its own reason.
+ipcMain.handle('antumi:remote-problem', () => backend.remoteProblem())
+
 // Where the backend runs, and the choice of it for the next start: the app talks to one backend
 // for as long as it runs, so a new choice restarts it.
 ipcMain.handle('antumi:backend-location', () => backend.state())
@@ -384,13 +423,14 @@ ipcMain.on('antumi:backend-path', (event, path: unknown) => {
   event.returnValue = typeof path === 'string' ? backend.toBackendPath(path) : null
 })
 
-// A folder or file the user picked, as core names it. One a backend in WSL cannot reach (another
-// distro's, a network share) is said so rather than handed over as a path that leads nowhere.
+// A folder or file the user picked, as core names it. One a backend elsewhere cannot reach (another
+// distro's, a network share, anything of this machine's under remote) is said so rather than
+// handed over as a path that leads nowhere.
 function picked(window: BrowserWindow | null, path: string | undefined): string | null {
   if (!path) return null
   const named = backend.toBackendPath(path)
   if (named) return named
-  const options = { type: 'warning' as const, message: uiText('This place cannot be reached from the WSL distro Antumi runs in', '运行 Antumi 的 WSL 发行版访问不到这个位置'), detail: path }
+  const options = { type: 'warning' as const, message: uiText('This place cannot be reached from the machine Antumi runs its backend on', '运行 Antumi 后端的机器访问不到这个位置'), detail: path }
   if (window && !window.isDestroyed()) dialog.showMessageBoxSync(window, options)
   else dialog.showMessageBoxSync(options)
   return null
@@ -637,9 +677,9 @@ const updater = app.isPackaged || updateApi ? new AppUpdater({
 // The installer then runs silently into the same folder (--updated keeps it an update) and starts
 // the new version when done (--force-run).
 async function installOnWindows(installer: string): Promise<void> {
-  const backend = await stopBackendForInstall()
-  if (!backend.stopped) {
-    if (backend.blockers) throw new InstallBlocked(backend.blockers)
+  const stopped = await backend.stopForInstall()
+  if (!stopped.stopped) {
+    if (stopped.blockers) throw new InstallBlocked(stopped.blockers)
     // Part of it may have gone before the rest would not: bring back what is missing.
     void ensureBackend()
     throw new Error('backend-unresponsive')
@@ -719,13 +759,18 @@ void app.whenReady().then(async () => {
   createWindow()
   void removeUpdateLeftovers()
   // After the backend: ensureBackend may move the home, and the host file belongs in the one core reads.
-  void backend.start().finally(() => startBrowserHost(slot, backend.browserHostFile(), confirmLeavePage).then(
-    (host) => {
-      browserHost = host
-      backend.browserHostStarted(host.server)
-    },
-    (error: unknown) => console.error('[antumi] the browser host did not start', error)
-  ))
+  void backend.start().finally(() => {
+    // Remote mode: the host still runs here, but the file that announces it would land in this
+    // machine's home, which the remote core never reads (docs/REMOTE-CORE.md §4.3).
+    if (backend.isRemote()) return
+    return startBrowserHost(slot, backend.browserHostFile(), confirmLeavePage).then(
+      (host) => {
+        browserHost = host
+        backend.browserHostStarted(host.server)
+      },
+      (error: unknown) => console.error('[antumi] the browser host did not start', error)
+    )
+  })
   setInterval(() => void backend.replaceOldDaemon(), OLD_DAEMON_CHECK_MS).unref()
   app.on('activate', () => {
     if (!mainWindow) {

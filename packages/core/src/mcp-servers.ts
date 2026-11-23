@@ -1,13 +1,16 @@
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { McpServer, type AgentKind, type McpImportCandidate, type McpImportItem, type McpProbe, type McpSecretInput, type McpServerInput, type McpTransport } from '@antumi/protocol'
+import { McpServer, sameMcpTarget, type AgentKind, type McpImportCandidate, type McpImportItem, type McpProbe, type McpSecretInput, type McpServerInput, type McpTransport } from '@antumi/protocol'
 import { readJsonIfExists, writePrivateJson } from '@antumi/protocol/node'
 import type { CredentialStore } from './credential-store'
 import { findAgentMcpServers, importCandidate, importInput, type FoundMcpServer } from './mcp-import'
 import { probeMcpServer } from './mcp-probe'
 import { Rejection } from './rejection'
 
-const Saved = z.object({ version: z.literal(1), servers: z.array(McpServer) })
+const SavedServer = McpServer.extend({ credentialRef: z.string().optional() })
+type SavedServer = z.infer<typeof SavedServer>
+const Saved = z.object({ version: z.literal(1), servers: z.array(SavedServer) })
 
 // The secrets of one server, under the credential store's `mcp` provider: env and header values
 // side by side, told apart by prefix.
@@ -27,7 +30,7 @@ export type ResolvedMcpServer = {
 // credential store, so the file holds nothing secret. Changes run one at a time: a rename moves
 // secrets from one name to another, which another change must not interleave with.
 export class McpServerStore {
-  private servers: McpServer[] = []
+  private servers: SavedServer[] = []
   private chain: Promise<unknown> = Promise.resolve()
 
   constructor(
@@ -50,11 +53,11 @@ export class McpServerStore {
     }
   }
 
-  list(): readonly McpServer[] { return this.servers }
+  list(): McpServer[] { return this.servers.map((server) => McpServer.parse(server)) }
 
   // What an agent of this kind is handed at its start.
   forAgent(agent: AgentKind): McpServer[] {
-    return this.servers.filter((server) => server.enabled && server.agents.includes(agent))
+    return this.list().filter((server) => server.enabled && server.agents.includes(agent))
   }
 
   resolve(name: string): ResolvedMcpServer | null {
@@ -62,8 +65,8 @@ export class McpServerStore {
     return server ? this.resolved(server) : null
   }
 
-  private resolved(server: McpServer): ResolvedMcpServer {
-    const secrets = this.credentials.get(PROVIDER, server.name)?.payload ?? {}
+  private resolved(server: SavedServer): ResolvedMcpServer {
+    const secrets = this.credentials.get(PROVIDER, server.credentialRef ?? server.name)?.payload ?? {}
     const pick = (keys: readonly string[], key: (name: string) => string) =>
       Object.fromEntries(keys.flatMap((name) => { const value = secrets[key(name)]; return value === undefined ? [] : [[name, value]] }))
     const transport = server.transport
@@ -106,16 +109,16 @@ export class McpServerStore {
     return result
   }
 
-  private require(name: string): McpServer {
+  private require(name: string): SavedServer {
     const server = this.servers.find((each) => each.name === name)
     if (!server) throw new Rejection('mcp-unknown', '没有这个 MCP 服务器')
     return server
   }
 
-  private async write(servers: McpServer[]): Promise<void> {
+  private async write(servers: SavedServer[]): Promise<void> {
     await writePrivateJson(this.file, { version: 1, servers })
     this.servers = servers
-    this.changed(servers)
+    this.changed(this.list())
   }
 
   save(input: McpServerInput): Promise<McpServer> {
@@ -124,12 +127,15 @@ export class McpServerStore {
       if (input.name !== input.previousName && this.servers.some((each) => each.name === input.name)) {
         throw new Rejection('mcp-name-taken', '已经有同名的 MCP 服务器')
       }
-      const stored = previous ? this.credentials.get(PROVIDER, previous.name)?.payload ?? {} : {}
+      const previousRef = previous ? previous.credentialRef ?? previous.name : null
+      const stored = previousRef ? this.credentials.get(PROVIDER, previousRef)?.payload ?? {} : {}
+      const targetChanged = previous !== null && !sameMcpTarget(previous.transport, input.transport)
       const secrets: Record<string, string> = {}
       const take = (entries: readonly McpSecretInput[], key: (name: string) => string): string[] => {
         const keys = entries.map((entry) => entry.key)
         if (new Set(keys).size !== keys.length) throw new Rejection('mcp-duplicate-key', '同一个键填了两次')
         for (const entry of entries) {
+          if (entry.value === null && targetChanged) throw new Rejection('mcp-secret-target-changed', '连接目标已改变，请重新填写要用于新目标的凭据')
           const value = entry.value ?? stored[key(entry.key)]
           if (value === undefined) throw new Rejection('mcp-secret-missing', `${entry.key} 还没有填值`)
           secrets[key(entry.key)] = value
@@ -144,20 +150,19 @@ export class McpServerStore {
         throw new Rejection('mcp-relative-cwd', '工作目录要写绝对路径')
       }
       const now = Date.now()
-      const server: McpServer = { name: input.name, enabled: input.enabled, agents: [...new Set(input.agents)], transport, createdAt: previous?.createdAt ?? now, updatedAt: now }
-      // Secrets first: a list that names a server whose secrets were not written would start it without them.
-      if (Object.keys(secrets).length > 0) {
-        await this.credentials.set(PROVIDER, server.name, { kind: 'mcp', payload: secrets, account: null, updatedAt: now })
-      } else if (this.credentials.get(PROVIDER, server.name)) {
-        await this.credentials.delete(PROVIDER, server.name)
-      }
+      const credentialRef = Object.keys(secrets).length ? randomUUID() : undefined
+      const server: SavedServer = { name: input.name, enabled: input.enabled, agents: [...new Set(input.agents)], transport, credentialRef, createdAt: previous?.createdAt ?? now, updatedAt: now }
+      // Versioned secrets keep a failed settings write from pairing the old target with a new key.
+      if (credentialRef) await this.credentials.set(PROVIDER, credentialRef, { kind: 'mcp', payload: secrets, account: null, updatedAt: now })
       const rest = this.servers.filter((each) => each.name !== previous?.name && each.name !== server.name)
       const at = previous ? this.servers.indexOf(previous) : this.servers.length
-      await this.write([...rest.slice(0, at), server, ...rest.slice(at)])
-      if (previous && previous.name !== server.name && this.credentials.get(PROVIDER, previous.name)) {
-        await this.credentials.delete(PROVIDER, previous.name)
+      try { await this.write([...rest.slice(0, at), server, ...rest.slice(at)]) }
+      catch (error) {
+        if (credentialRef) await this.credentials.delete(PROVIDER, credentialRef).catch(() => {})
+        throw error
       }
-      return server
+      if (previousRef) await this.credentials.delete(PROVIDER, previousRef).catch(() => {})
+      return McpServer.parse(server)
     })
   }
 
@@ -165,15 +170,15 @@ export class McpServerStore {
     return this.serially(async () => {
       const server = { ...this.require(name), enabled, updatedAt: Date.now() }
       await this.write(this.servers.map((each) => (each.name === name ? server : each)))
-      return server
+      return McpServer.parse(server)
     })
   }
 
   remove(name: string): Promise<void> {
     return this.serially(async () => {
-      this.require(name)
+      const server = this.require(name)
       await this.write(this.servers.filter((each) => each.name !== name))
-      if (this.credentials.get(PROVIDER, name)) await this.credentials.delete(PROVIDER, name)
+      await this.credentials.delete(PROVIDER, server.credentialRef ?? name).catch(() => {})
     })
   }
 }

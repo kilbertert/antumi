@@ -196,6 +196,19 @@ export class TaskService {
     return this.named(this.changed(this.store.update(task.id, { agent, source, sourceSnapshot: snapshot })))
   }
 
+  createRequirementTask(solutionId: string, input: { title: string; details: string; repos: string[]; source: TaskSource; snapshot: SourceSnapshot }): Task {
+    const existing = this.store.requirementTask(solutionId)
+    if (existing) return existing
+    const paths = [...new Set(input.repos.map(normalizeRepoPath))]
+    const task = this.store.create(input.title, { details: input.details, repos: withKnownWorktrees([], paths), source: input.source, sourceSnapshot: input.snapshot }, solutionId)
+    this.projects.remember(paths)
+    return this.changed(task)
+  }
+
+  requirementTask(solutionId: string): Task | null {
+    return this.store.requirementTask(solutionId)
+  }
+
   // Keys of the issues tasks were imported from, abandoned ones included: a redo keeps its source.
   importedKeys(provider: string, instance: string): Set<string> {
     return new Set(

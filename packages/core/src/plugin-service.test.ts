@@ -28,7 +28,7 @@ describe('plugin installation and activation', () => {
     await credentials.load()
     sources = new SourceService([], config, credentials, new LoginFlows(), {
       importedKeys: () => new Set(), importTask: () => { throw new Error('unused') }, get: () => { throw new Error('unused') }, setSnapshot: () => { throw new Error('unused') }
-    }, { dismissedIssues: () => new Set(), dismissIssue: () => {}, restoreIssue: () => {} }, new AttachmentStore(root), { inboxChanged: () => {}, listChanged: () => {} })
+    }, { dismissedIssues: () => new Set(), dismissIssue: () => {}, restoreIssue: () => {} }, new AttachmentStore(root), { inboxChanged: () => {}, listChanged: () => {}, attachmentProgress: () => {} })
     plugins = createService()
     await plugins.load()
   })

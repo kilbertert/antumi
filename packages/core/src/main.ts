@@ -1,3 +1,6 @@
+import { RequirementStore } from './requirement-store'
+import { RequirementProjectStore } from './requirement-project-store'
+import { RequirementService } from './requirement-service'
 import { investigationPermission, investigationRef, SourceInvestigationService } from './source-investigation-service'
 import { SourceInvestigationStore } from './source-investigation-store'
 import { Rejection } from './rejection'
@@ -28,7 +31,6 @@ import { PluginService } from './plugin-service'
 import { ProjectStar } from './project-star'
 import { PullRequestStore } from './pull-request-store'
 import type { PullRequestService } from './pull-request-service'
-import { PetLibrary } from './pet-library'
 import { createRpcHandlers } from './rpc-handlers'
 import { SessionImports } from './session-imports'
 import { SquadService } from './squad-service'
@@ -57,6 +59,7 @@ import { migrateLegacyJira } from './source-migration'
 import { SourceService } from './source-service'
 import { ConversationStore } from './conversation-store'
 import { ConversationService } from './conversation-service'
+import { ConversationFiles } from './conversation-files'
 import { TerminalCommandStore } from './terminal-commands'
 import { BookmarkStore } from './bookmarks'
 import { BrowserHistoryStore } from './browser-history'
@@ -311,6 +314,7 @@ await migrateLegacyJira(paths.legacyJiraConfig, sourceConfig, credentials).catch
 )
 const sources = new SourceService([], sourceConfig, credentials, new LoginFlows(), service, store, attachments, {
   inboxChanged: (inbox) => server?.broadcast('sources.inboxChanged', { inbox }),
+  attachmentProgress: (progress) => server?.broadcast('sources.attachmentProgress', progress),
   listChanged: (list) => { server?.broadcast('sources.listChanged', { sources: list }); queueMicrotask(() => { sourceUpdates?.connectionsChanged() }) }
 })
 sources.setConversations(conversations)
@@ -379,11 +383,6 @@ ${comments}` }, [], Infinity)
 const plugins = new PluginService(path.join(paths.home, 'plugins'), packageJson.version, sources, sourceConfig, [],
   (plugins) => server?.broadcast('plugins.changed', { plugins }), browser)
 await plugins.load()
-const pets = new PetLibrary(path.join(paths.home, 'pets'), {
-  developmentDirectory: process.env.ANTUMI_PET_DIRECTORY,
-  changed: (state) => server?.broadcast('pets.changed', state)
-})
-await pets.load()
 
 const usageSources: Partial<Record<AgentKind, UsageSource>> = {}
 const resetCreditUses: Partial<Record<AgentKind, ResetCreditUse>> = {}
@@ -743,6 +742,11 @@ sourceInvestigations = new SourceInvestigationService(new SourceInvestigationSto
 sources.automatic = sourceInvestigations
 conversations.setAutomaticInvestigation(sourceInvestigations)
 
+const requirementStore = new RequirementStore(paths.database)
+const requirementProjects = new RequirementProjectStore(paths.database)
+const requirements = new RequirementService(requirementStore, sources, service, (requirement) => server?.broadcast('requirements.changed', { requirement }), Date.now,
+  new ConversationFiles((id) => conversations.get(id)), () => chatSettings.current().knowledgeBase?.path ?? null, requirementProjects)
+
 const token = randomBytes(32).toString('hex')
 server = await startRpcServer({
   port: Number(process.env.ANTUMI_PORT ?? 0),
@@ -751,8 +755,8 @@ server = await startRpcServer({
     store: attachments,
     uploads: new AttachmentUploads(attachments),
     sweeper: attachmentSweeper
-  }, terminals, worktrees, browser, awake, terminalCommands, limits, runs, turns, chatSettings, environment, schedules, chatCommands, routines, discussions, wire, () => { server?.broadcast('git.changed', {}); profiles.tick() }, squads, todos, plugins, skills, mcpServers, smallModels, projectConfigs, modelProviders, sessionImports, accounts, cliMaintenance, analytics, automation, pets, new ProjectStar(sources), profiles, bookmarks, browserHistory, sourceUpdates,
-    { store: pullRequestStore, changed: (taskId, links) => server?.broadcast('pullRequests.changed', { taskId, links }), ready: (service) => { pullRequests.current = service } }, browserSites, mobile, channels)
+  }, terminals, worktrees, browser, awake, terminalCommands, limits, runs, turns, chatSettings, environment, schedules, chatCommands, routines, discussions, wire, () => { server?.broadcast('git.changed', {}); profiles.tick() }, squads, todos, plugins, skills, mcpServers, smallModels, projectConfigs, modelProviders, sessionImports, accounts, cliMaintenance, analytics, automation, new ProjectStar(sources), profiles, bookmarks, browserHistory, sourceUpdates,
+    { store: pullRequestStore, changed: (taskId, links) => server?.broadcast('pullRequests.changed', { taskId, links }), ready: (service) => { pullRequests.current = service } }, browserSites, mobile, channels, requirements)
 })
 await writeCoreEndpoint({ port: server.port, token, pid: process.pid, protocolVersion: PROTOCOL_VERSION, version: packageJson.version })
 mobile.seed(conversations.list(true, true, true))
@@ -808,7 +812,6 @@ async function shutdown(): Promise<void> {
   sourceInvestigations?.suspend()
   sources.stop()
   await plugins.close()
-  await pets.close()
   await sources.pause(sources.list().map((source) => source.provider))
   awake?.stop()
   cliMaintenance.close()
@@ -820,6 +823,8 @@ async function shutdown(): Promise<void> {
   await removeCoreEndpoint(process.pid)
   await sourceUpdates?.close()
   sourceUpdateStore.close()
+  requirementProjects.close()
+  requirementStore.close()
   store.close()
   conversationsStore.close()
   runs.close()

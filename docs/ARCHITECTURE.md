@@ -606,7 +606,15 @@ Agent 可用之后、任务来源之前是「接着聊」一步：从零用一�
 
 ### 用户的 MCP 服务器
 
-设置 → 任务 → MCP 维护一份全局的 MCP 服务器列表（`mcp-servers.ts`）：本地命令（stdio）或远程地址（streamable HTTP，远程只接受 https），每个选好交给哪些 Agent，可以单独停用。设置存在 `mcp-servers.json`；环境变量和请求头的值都当密钥，存进 `credentials.json`（`mcp/<名字>`），客户端只看得到键名。名字 `antumi` 留给 Antumi 自己的服务器（工具名靠它识别）。
+设置 → 任务 → MCP 维护一份全局的 MCP 服务器列表（`mcp-servers.ts`）：本地命令（stdio）或远程地址（streamable HTTP，远程只接受 https），每个选好交给哪些 Agent，可以单独停用。设置存在 `mcp-servers.json`；环境变量和请求头的值都当密钥，存进 `credentials.json`，客户端只看得到键名。名字 `antumi` 留给 Antumi 自己的服务器（工具名靠它识别）。
+
+保留凭据须连接目标不变：HTTP 比较规范化后的完整 URL，stdio 比较命令、参数和工作目录；
+改变目标须重新填写要交给新目标的值，重命名或修改共享 Agent 不需要重填。
+这项本地规则沿用 MCP 规范中凭据应限定接收方的原则。参见 [MCP 安全说明](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices#token-passthrough)。
+保存时先写独立凭据记录
+（`mcp/<随机引用>`），再原子切换设置中的 `credentialRef`，最后删除旧记录；设置写失败
+仍保留旧目标和旧凭据。旧的 `mcp/<名字>` 记录继续可读，编辑时迁移。客户端 RPC 不变；
+回退旧 Core 时，它不能读取新引用形式的 MCP 凭据，须重新填写；模型服务商和来源凭据不受影响。
 
 和技能库一样，**每次启动时注入，不改 Agent 自己的配置**：descriptor 的 `capabilities.userMcp` 说明能不能接，adapter 用交 Antumi MCP 的同一条路交出去（`AgentLaunch.userMcp`）——Claude Code 合进 `--mcp-config`（仍不加 `--strict-mcp-config`，用户自己配的照常加载），Codex 是整条 `-c mcp_servers.<名字>={...}`（同名时盖过 config.toml 里的那条），Cursor 和 OpenCode 进 ACP `session/new` 的 `mcpServers`，Pi 由 Antumi 的扩展 `registerMcpServer`（用户自己 `~/.pi/agent/mcp.json` 里的照常加载）。有密钥的服务器交出去的是 Antumi 的启动器（`mcp-main --run <名字>`，`user-mcp-launch.ts`）：它启动时才从 Antumi 的文件读出密钥，命令带上环境变量直接接管 stdio，远程地址则由它在 stdio 和 HTTP 之间转发（`mcp-http.ts`），所以密钥不进 Agent 的命令行、配置和 Antumi 的日志；没有密钥的远程地址直接交给 Agent。改动从下次启动 Agent 起生效。
 
@@ -836,6 +844,52 @@ pnpm dist:win     # 打包 Windows 安装包
 ## 10. 已知限制与下一步
 
 - **验收**：按项目配置的测试命令在 worktree 里跑，结果放进检查器；合并分支
-- **WSL**：后端跑在发行版里、Windows 只留界面，设计见 [WSL.md](WSL.md)，未实现
+- **WSL**：后端跑在发行版里、Windows 只留界面，设计见 [WSL.md](WSL.md)；「远程主机」是同一条后端位置的第三个选项，见 [REMOTE-CORE.md](REMOTE-CORE.md)
 - **SSH 执行宿主**：给 git、PTY 操作加上 `hostId`
 - **Windows**：代码按 Windows 写好了，也有单元测试，但还没在 Windows 实机上验证过，也没有 Windows CI 和代码签名，应用内更新也没在实机上试过；named pipe 没有设 ACL；「用…打开」的应用列表只有 macOS 有
+
+## 需求与方案
+
+支持 `requirements` 的 core 在禅道收件箱提供「进入需求」；「需求与方案」
+可重新打开已导入事项。站点更换后同编号形成独立需求，旧记录和附件
+不能从新站点刷新或下载。导入保存原文、图片和附件引用，不创建开发任务。
+「外部连接与凭据」显示当前 Core 的禅道凭据、模型 Key 和 MCP 启用情况，并跳转
+到现有设置页，保留未保存的需求草稿。状态仅描述配置，不代表连通性验证。Stitch、
+墨刀等工具通过提供方的 MCP 配置交给所选 Agent，不增加独立凭据库或自动原型回填。
+每次保存或重新拉取都形成一个需求修订版，历史保持只读；业务项目和目标版本
+可关联目录项，关联代码项目仍是独立的仓库路径列表。
+
+需求负责人可在 Core 维护业务项目和迭代目录，在需求修订中选择非关闭的迭代。
+项目与迭代 ID 按修订保存在独立表，显示名称保存在修订字段作为历史快照；关闭
+迭代不改写已保存需求，但后续修订和新提交评审不能再选它。每个业务项目最多一项
+进行中迭代，关闭前须确认，归档项可恢复。已采纳方案不阻止同一项目继续规划后续版本。
+旧客户端继续使用自由文本；它改写项目或版本文本时不套用旧关联。
+关联与需求按 SQLite 的 [事务语义](https://www.sqlite.org/lang_transaction.html)
+同事务保存，写失败整体回滚；新目录连接显式开启[外键检查](https://www.sqlite.org/foreignkeys.html)。
+业务项目和迭代不创建 Sprint 看板、企业身份权限或甘特计划。
+
+「在 Agent 会话中分析」把当前修订、不可信来源资料和图片追加到现有会话编辑器，
+默认采用 Agent 的规划或只读模式，用户选择模型、服务商和权限后发送。首片的方案包由操作者整理并
+保存 Markdown；没有模型专用编排、自动知识检索或自动提取报告。
+
+方案包可从 Core 当前配置的 Markdown 或 Obsidian 知识库搜索文件，预览后由用户选择
+逐字摘录。方案保存知识库相对路径、原文和文件版本；摘录变化后必须重新确认。
+Agent 只收到用户选择的摘录，不会把知识库目录加入项目或自动读取其他笔记；摘录
+作为不可信资料进入架构分析和开发任务。首版复用每个 Core 的单一知识库设置，不
+提供每个业务项目独立知识库或自动向量索引。
+
+支持 `requirement-prototypes` 的 Core 可从已保存的方案打开原型生成请求。研发选择 Agent 后发送，
+再把 HTML 贴回方案包。每版方案保留一份 HTML，提交评审后随正文锁定。
+预览只显示静态 HTML、内联样式和嵌入图片。HTML 与方案同事务保存于独立表，
+旧 Core 写回方案时保留这些记录。旧 Core 无法预览原型，恢复新版后可继续查看。
+
+方案提交评审前要求负责人、目标、范围、验收条件、代码项目及已解决的
+待确认问题。提交后正文锁定；退回时保留意见并允许修改，采纳时记录需求
+负责人的姓名、结论与时间。姓名是确认记录，尚无企业人员身份认证。
+采纳后创建一个待执行的普通 Antumi 任务，详情包含结构化需求、方案和
+评审记录，禅道原文另存为不可信快照；重复交接打开同一任务，不启动 Agent。
+
+修订变化后，旧方案标出需要复核，并拒绝按新需求直接交接。写操作带版本
+号以拒绝另一窗口的旧编辑；未保存的表单、方案和评审保留本地草稿，
+重载后恢复，旧版本草稿不能覆盖新修订。新表迁移只追加，不改已有任务。手机和锁定的
+聊天平台连接不开放需求 RPC。验收和 QA 见 [requirements](requirements/qa-plan.md)。

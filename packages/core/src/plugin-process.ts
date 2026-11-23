@@ -63,17 +63,18 @@ export class PluginProcess {
     for (const controller of this.controllers) controller.abort()
   }
 
-  call<M extends PluginMethod>(method: M, params: PluginParams<M>, signal?: AbortSignal, session?: LoginSession, browser?: PluginBrowserCall): Promise<PluginResult<M>> {
+  call<M extends PluginMethod>(method: M, params: PluginParams<M>, signal?: AbortSignal, session?: LoginSession, browser?: PluginBrowserCall, onProgress?: (read: number, total: number | null) => void): Promise<PluginResult<M>> {
     if (this.stopped) return Promise.reject(new SourceError('request-failed', '插件已停止'))
     const controller = new AbortController()
     this.controllers.add(controller)
     const abort = AbortSignal.any([controller.signal, ...(signal ? [signal] : []), AbortSignal.timeout(method === 'login' ? 15 * 60_000 : method === 'page' ? 60_000 : 120_000)])
-    const result = this.invoke(method, params, abort, session, browser)
+    // A download may take minutes on a slow site; its own budget, not the standard 120s.
+    const result = this.invoke(method, params, method === 'attachment' ? AbortSignal.any([abort, AbortSignal.timeout(15 * 60_000)]) : abort, session, browser, onProgress)
     void result.finally(() => this.controllers.delete(controller)).catch(() => {})
     return result
   }
 
-  private invoke<M extends PluginMethod>(method: M, params: PluginParams<M>, signal: AbortSignal, session?: LoginSession, browser?: PluginBrowserCall): Promise<PluginResult<M>> {
+  private invoke<M extends PluginMethod>(method: M, params: PluginParams<M>, signal: AbortSignal, session?: LoginSession, browser?: PluginBrowserCall, onProgress?: (read: number, total: number | null) => void): Promise<PluginResult<M>> {
     return new Promise((resolve, reject) => {
       if (signal.aborted) { reject(new SourceError('request-failed', '插件调用已取消')); return }
       const child = spawn(process.execPath, [this.main], {
@@ -126,7 +127,14 @@ export class PluginProcess {
       child.stdout.on('data', (chunk: Buffer) => {
         if (outcome) return
         bytes += chunk.length
-        if (bytes > (method === 'fetch' && handshaken ? 72 * 1024 * 1024 : method === 'image' && handshaken ? 16 * 1024 * 1024 : MAX_OUTPUT)) { fail('插件输出超出大小限制'); return }
+                // An attachment is a file the user asked to download: it is base64'd, so its budget is the
+        // file ceiling plus the encoding's third, and it is the only method expected to reach it.
+        const ceiling = !handshaken ? MAX_OUTPUT
+          : method === 'fetch' ? 72 * 1024 * 1024
+          : method === 'attachment' ? 96 * 1024 * 1024
+          : method === 'image' ? 16 * 1024 * 1024
+          : MAX_OUTPUT
+        if (bytes > ceiling) { fail('插件输出超出大小限制'); return }
         let at = 0
         while (at < chunk.length && !outcome) {
           const end = chunk.indexOf(10, at)
@@ -151,6 +159,12 @@ export class PluginProcess {
                 browsing = false
                 send({ type: 'browserResult', id: message.id, error: error instanceof Error ? error.message.slice(0, 2000) : '浏览器请求失败，请检查登录状态或重新打开 Antumi' })
               }).catch(() => fail('无效的浏览器响应'))
+              continue
+            }
+            if (message.type === 'progress') {
+              // Only a download produces these; anything else reporting progress is a plugin bug.
+              if (method !== 'attachment') throw new Error('progress outside attachment')
+              onProgress?.(message.read, message.total)
               continue
             }
             if (message.type === 'notify' || message.type === 'prompt') {
@@ -206,12 +220,18 @@ export class PluginProcess {
       providers.push({
         ...source,
         ...(source.commentSync === 1 ? {
-          comments: (settings, credential, key, signal, options) => this.call('comments', { source: source.id, settings, credential, key, ...options }, signal),
-          image: async (settings, credential, key, id, signal) => {
-            const image = await this.call('image', { source: source.id, settings, credential, key, id }, signal)
-            return { name: image.name, bytes: Buffer.from(image.base64, 'base64') }
-          }
+          comments: (settings, credential, key, signal, options) => this.call('comments', { source: source.id, settings, credential, key, ...options }, signal)
         } satisfies Partial<SourceProvider> : {}),
+        // Outside the commentSync guard: comment images and attachments are separate features, and
+        // a source may carry files without supporting comments.
+        image: async (settings, credential, key, id, signal) => {
+          const image = await this.call('image', { source: source.id, settings, credential, key, id }, signal)
+          return { name: image.name, bytes: Buffer.from(image.base64, 'base64') }
+        },
+        attachment: async (settings, credential, key, id, signal, progress) => {
+          const file = await this.call('attachment', { source: source.id, settings, credential, key, id }, signal, undefined, undefined, progress)
+          return { name: file.name, bytes: Buffer.from(file.base64, 'base64') }
+        },
         envCredential: () => credential,
         normalizeSettings: (settings) => this.call('normalizeSettings', { source: source.id, settings }, timed()),
         normalizeKey: (key) => this.call('normalizeKey', { source: source.id, key }, timed()),

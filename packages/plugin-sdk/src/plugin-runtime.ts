@@ -163,9 +163,19 @@ export function runPlugin(options: Omit<SourceOptions, 'sources'> & { sources?: 
         const image = await source.image(settings, credential, key, id, signal)
         return { name: image.name, base64: Buffer.from(image.bytes).toString('base64') }
       }
+      case 'attachment': {
+        const { settings, credential, key, id } = pluginSchemas.attachment.params.parse(params)
+        if (!source.attachment) throw new SourceError('request-failed', '来源不支持下载附件')
+        // Reports travel as their own message type; the answer comes back through the normal result.
+        const file = await source.attachment(settings, credential, key, id, signal, (read, total) => {
+          send({ type: 'progress', read: Math.max(0, Math.floor(read)), total: total === null ? null : Math.max(0, Math.floor(total)) })
+        })
+        return { name: file.name, base64: Buffer.from(file.bytes).toString('base64') }
+      }
       case 'fetch': {
         const { settings, credential, key, images } = pluginSchemas.fetch.params.parse(params)
         const detail = await source.fetch(settings, credential, key, signal, { images: images ?? true })
+        // attachments pass through untouched: they are names and sizes, not bytes.
         return { ...detail, images: detail.images?.map((image) => ({ name: image.name, base64: Buffer.from(image.bytes).toString('base64') })) }
       }
     }

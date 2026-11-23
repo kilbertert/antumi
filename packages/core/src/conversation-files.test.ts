@@ -109,6 +109,19 @@ describe('conversation files', () => {
     await expect(files.list('chat', path.join(primary, 'missing'))).rejects.toThrow('无法读取目录')
   })
 
+  it('reads project evidence with a stable fingerprint and rejects escaping links', async () => {
+    const file = path.join(primary, 'design.md')
+    const outside = path.join(root, 'outside.md')
+    await Promise.all([writeFile(file, 'approved design'), writeFile(outside, 'private')])
+    const evidence = await files.readProjectEvidence([primary], file)
+    expect(evidence).toMatchObject({ project: primary, relative: 'design.md', text: 'approved design', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
+    if (process.platform !== 'win32') {
+      const link = path.join(primary, 'outside.md')
+      await symlink(outside, link)
+      await expect(files.readProjectEvidence([primary], link)).rejects.toThrow('关联代码项目')
+    }
+  })
+
   it('saves a project file in place when it has not changed since it was read', async () => {
     const file = path.join(primary, 'edit.ts')
     await writeFile(file, 'before')

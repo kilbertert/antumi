@@ -41,6 +41,7 @@ describe('a channel-tools connection', () => {
     await expect(rpc.call('conversations.list', {})).rejects.toMatchObject({ reason: 'channel-tools-only' })
     await expect(rpc.call('files.read', { path: '/etc/passwd' })).rejects.toMatchObject({ reason: 'channel-tools-only' })
     await expect(rpc.call('tasks.create', { title: 'arbitrary task', repos: ['/private'] })).rejects.toMatchObject({ reason: 'channel-tools-only' })
+    await expect(rpc.call('requirements.list', {})).rejects.toMatchObject({ reason: 'channel-tools-only' })
     await expect(rpc.call('tasks.start', { id: 'arbitrary' })).rejects.toMatchObject({ reason: 'channel-tools-only' })
     // Saying hello again does not give back what the first one gave up.
     await expect(rpc.call('system.hello', { protocolVersion: PROTOCOL_VERSION })).rejects.toMatchObject({ reason: 'channel-tools-only' })

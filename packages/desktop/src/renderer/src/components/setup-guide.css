@@ -14,8 +14,8 @@
 .setup-guide-inner { display: flex; align-items: flex-end; gap: 12px; width: 100%; pointer-events: auto; }
 .setup-guide-pet { flex: 0 0 80px; width: 80px; height: 80px; }
 .setup-guide-speech { display: flex; align-items: flex-start; gap: 8px; min-width: 0; flex: 1; max-height: min(44vh, calc(100dvh - 48px)); overflow-y: auto; background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--radius); box-shadow: var(--shadow-float); padding: 12px; font-size: 13px; line-height: 1.5; }
-.pet-speech-content { min-width: 0; flex: 1; }
-.pet-speech-text { margin: 0; overflow-wrap: anywhere; }
+.setup-guide-speech-content { min-width: 0; flex: 1; }
+.setup-guide-speech-text { margin: 0; overflow-wrap: anywhere; }
 .setup-guide-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
 .setup-guide-heading > [role='status'] { font-weight: 500; }
 .setup-guide-details { display: grid; justify-items: start; gap: 4px; color: var(--text-muted); }

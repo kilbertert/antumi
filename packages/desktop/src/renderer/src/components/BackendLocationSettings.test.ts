@@ -22,7 +22,7 @@ const DISTROS = [
   { name: 'Ubuntu', version: 2 as const, isDefault: true },
   { name: 'Legacy', version: 1 as const, isDefault: false }
 ]
-const LOCAL: BackendLocationState = { supported: true, chosen: { kind: 'local' }, running: 'local', distros: DISTROS, problem: null }
+const LOCAL: BackendLocationState = { supported: true, chosen: { kind: 'local' }, running: 'local', distros: DISTROS, remote: null, problem: null }
 const failed = (problem: WslBackendProblem): BackendLocationState => ({ ...LOCAL, chosen: { kind: 'wsl', distro: 'Ubuntu' }, problem })
 const settings = (state: BackendLocationState | null) => {
   useBackendLocation.setState({ state })
@@ -56,6 +56,22 @@ describe('backend location settings', () => {
     const unknown = backendLocationOptions({ ...LOCAL, chosen: { kind: 'wsl', distro: 'Arch' }, distros: null })
     expect(unknown.map((option) => option.value)).toEqual(['local', 'wsl:Arch'])
     expect(unknown.at(-1)?.description).toBeNull()
+  })
+
+  it('offers the remote host once remote.json names it, and says a broken file', () => {
+    const options = backendLocationOptions({ ...LOCAL, remote: { host: 'dev-us', error: null } })
+    expect(options.at(-1)).toMatchObject({ value: 'remote', label: '远程主机 dev-us', disabled: false })
+    const broken = backendLocationOptions({ ...LOCAL, remote: { host: null, error: 'remote.json is not valid JSON' } })
+    expect(broken.at(-1)).toMatchObject({ value: 'remote', label: '远程主机（未配置）', disabled: true })
+    expect(broken.at(-1)?.description).toBe('remote.json is not valid JSON')
+  })
+
+  it('says a remote that did not come up serves nothing, without falling back', () => {
+    const html = settings({ ...LOCAL, supported: false, distros: [], chosen: { kind: 'remote' }, running: 'remote', remote: { host: 'dev-us', error: null }, problem: { kind: 'remote-link', detail: 'ssh: connect to host dev-us port 22: refused' } })
+    expect(html).toContain('连不上远程后端')
+    expect(html).toContain('远程后端没能启动，这次哪里也没连上')
+    expect(html).toContain('port 22')
+    expect(html).toContain('role="alert"')
   })
 
   it('says where it runs now and what WSL does not have yet', () => {
