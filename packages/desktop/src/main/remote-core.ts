@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -192,13 +192,24 @@ export function createRemoteLink(config: RemoteCoreConfig): RemoteLink {
   const sshArgs = config.sshArgs ?? []
   let tunnel: ChildProcess | null = null
   let starting: Promise<CoreEndpoint> | null = null
+  // What core.json said before this link overwrote it: restored on stop so the file never advertises
+  // the dead end of a tunnel that no longer runs (the local core it described may still serve).
+  let previousCoreFile: string | null | undefined
 
   function stop(): void {
     if (tunnel && !tunnel.killed) tunnel.kill()
     tunnel = null
+    // Only the link that owns the port may touch the file; a newer writer means someone else is
+    // serving it now, same shape as removeCoreEndpoint's pid check.
+    try {
+      const file = antumiPaths().coreEndpoint
+      const current: unknown = JSON.parse(readFileSync(file, 'utf8'))
+      if (typeof current === 'object' && current !== null && (current as { port?: unknown }).port === config.corePort) {
+        if (previousCoreFile == null) rmSync(file, { force: true })
+        else writeFileSync(file, previousCoreFile, { mode: 0o600 })
+      }
+    } catch { /* nothing of ours on disk to restore */ }
   }
-
-
 
   // An ssh process listening on our port with nothing of ours behind it is a forward a previous
   // run left behind (a crash, a killed parent). It is ours to clear; anything else is not.
@@ -253,7 +264,9 @@ export function createRemoteLink(config: RemoteCoreConfig): RemoteLink {
 
     // The renderer reads core.json through the preload bridge, so the local file must describe the
     // local end of the tunnel. Keeping that contract is what leaves core-store, the MCP clients and
-    // the browser host looking for a *local* core entirely unchanged.
+    // the browser host looking for a *local* core entirely unchanged. What it said first is kept:
+    // stop() puts it back when the tunnel goes.
+    try { previousCoreFile = readFileSync(antumiPaths().coreEndpoint, 'utf8') } catch { previousCoreFile = null }
     await writeCoreEndpoint({ port: config.corePort, token: endpoint.token, pid: endpoint.pid, protocolVersion: endpoint.protocolVersion, version: endpoint.version })
     return { ...endpoint, port: config.corePort }
   }
